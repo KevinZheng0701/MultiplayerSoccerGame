@@ -1,0 +1,17 @@
+# Ignore build files
+build/
+cache/
+
+# Ignore Webots temporary and backup files
+*.bak
+*.wbt.bak
+*.log
+*.tmp
+*.pyc
+
+# Ignore Webots auto-generated controllers
+controllers/*/build/
+controllers/*/bin/
+
+# Ignore Webots auto-generated worlds
+worlds/.temp/
