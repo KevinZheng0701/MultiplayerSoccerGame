@@ -2,16 +2,77 @@
 
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/robots/robotis/darwin-op/protos/RobotisOp2.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/robots/robotis/darwin-op/protos/RobotisJersey.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/samples/contests/robocup/protos/RobocupSoccerField.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/balls/protos/Ball.proto"
 
 WorldInfo {
 }
 Viewpoint {
-  orientation -0.5773502691896257 0.5773502691896257 0.5773502691896257 2.0944
-  position 0 0 10
+  orientation -0.32119655719009715 0.20211345501902092 0.925193451635658 2.087175235097255
+  position 0.4187455425721319 -1.5211493734174668 0.7458390742177788
 }
 TexturedBackground {
 }
 TexturedBackgroundLight {
+}
+DEF ROBOTISOP2 RobotisOp2 {
+  hidden position_0_0 -4.100878461856866e-08
+  hidden position_0_1 -0.006532504726872678
+  hidden position_0_2 -0.003266246491215961
+  hidden position_0_3 0.7212579560369614
+  hidden position_0_4 -0.8431913912177321
+  hidden linearVelocity_0 -0.004002720431374936 -0.0016948853844583707 0.08162499018670469
+  hidden angularVelocity_0 0.006257534683728071 0.06576997185009584 0.009029343163710714
+  hidden rotation_10 0.5774169516709086 0.5773169250599796 0.5773169250614134 2.094399976324935
+  hidden position_10_0 0.1789263274142479
+  hidden rotation_11 1 0 0 0.6064736725857525
+  hidden rotation_15 0.5748421453272039 0.5786001889375852 0.5786003191469986 2.0981904421653894
+  hidden position_15_0 -0.007402774970221201
+  hidden rotation_16 0 0 1 0.0074027749702319425
+  hidden position_16_0 0.8006789081551049
+  hidden rotation_17 -1 0 0 0.8006789081551047
+  hidden position_17_0 -1.3605919974158485
+  hidden rotation_18 1 0 0 1.3605919974158485
+  hidden position_18_0 -0.7337241046787393
+  hidden rotation_19 -1 0 0 0.7337241046787393
+  hidden position_19_0 -0.01584007946255399
+  hidden rotation_20 0 0 -1 0.015840079462555258
+  hidden rotation_21 0.5760690949107341 0.5779898074260833 0.5779897753423384 2.096303620344072
+  hidden position_21_0 0.010668976419735805
+  hidden rotation_22 0 0 -0.9999999999999999 0.010668976419743936
+  hidden position_22_0 -0.8006758698360072
+  hidden rotation_23 -1 0 0 0.8006758698360074
+  hidden position_23_0 1.360593442183995
+  hidden rotation_24 1 0 0 1.360593442183995
+  hidden position_24_0 0.730457658323773
+  hidden rotation_25 -1 0 0 0.7304576583237729
+  hidden position_25_0 0.025638127954970183
+  hidden rotation_26 0 0 1 0.025638127954967074
+  hidden rotation_27 0.6734976827938522 0.6734976622908821 0.3046338296381879 2.550247164567466
+  hidden position_27_0 0.3244298362333776
+  hidden rotation_28 0 0 0.9999999999999999 0.4609701637666192
+  hidden position_28_0 -0.5173460898959849
+  hidden rotation_29 -1 0 0 2.0881460898959854
+  hidden rotation_30 0.6828018660337367 0.6828019603911912 0.2599290184392521 2.6328787342260584
+  hidden position_30_0 -0.31773452325580276
+  hidden rotation_31 0 0 -1 0.4676654767441974
+  hidden position_31_0 0.5109772694485744
+  hidden rotation_32 -1 0 0 2.0817772694485743
+  translation -0.34675676902091895 0.0009102669818318735 0.29684359370972657
+  rotation -0.01519873673166838 0.999439474311166 0.029828435935893648 0.17204172545533833
+  controller "server_controller"
+  jersey RobotisJersey {
+  }
+}
+DEF BALL Ball {
+  translation 0 0 0.03
+  rotation 1 0 0 1.5707963267948966
+}
+RobocupSoccerField {
+  size "kid"
+  turfPhysics FALSE
 }
 DEF Game_Manager Robot {
   name "GameServer"
