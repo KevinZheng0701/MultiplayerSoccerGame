@@ -1,13 +1,39 @@
 #VRML_SIM R2025a utf8
+
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+
 WorldInfo {
 }
 Viewpoint {
-  orientation -0.5773 0.5773 0.5773 2.0944
+  orientation -0.5773502691896257 0.5773502691896257 0.5773502691896257 2.0944
   position 0 0 10
 }
 TexturedBackground {
 }
 TexturedBackgroundLight {
+}
+DEF Game_Manager Robot {
+  name "GameServer"
+  description "Starts the game server and handle client communication."
+  controller "server_controller"
+}
+DEF Soccer_Robot Robot {
+  name "RobotOne"
+  controller "client_controller"
+}
+DEF Soccer_Robot Robot {
+  translation 0.1 0 0.1
+  name "RobotOne(1)"
+  controller "client_controller"
+}
+DEF Soccer_Robot Robot {
+  translation 0.30000000000000004 0 0.30000000000000004
+  name "RobotOne(3)"
+  controller "client_controller"
+}
+DEF Soccer_Robot Robot {
+  translation 0.4 0 0.4
+  name "RobotOne(2)"
+  controller "client_controller"
 }
