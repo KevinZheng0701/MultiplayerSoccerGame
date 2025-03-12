@@ -1,4 +1,10 @@
 from controller import Robot, Motion
+import socket
+import threading
+import json
+import time
+
+
 
 class Nao(Robot):
     PHALANX_MAX = 8
@@ -13,7 +19,7 @@ class Nao(Robot):
         self.turnLeft60 = Motion('../../motions/TurnLeft60.motion')
         self.turnRight60 = Motion('../../motions/TurnRight60.motion')
         self.taiChi = Motion('../../motions/TaiChi.motion')
-        self.wipeForhead = Motion('../../motions/WipeForehead.motion')
+        self.standup = Motion('../../motions/StandUpFromFront.motion')
 
     def startMotion(self, motion):
         # interrupt current motion
@@ -247,20 +253,259 @@ class Nao(Robot):
     def __init__(self):
         Robot.__init__(self)
         self.currentlyPlaying = False
+        self.sock = None  # Store socket connection
+        self.role = None   # Store assigned role
 
-        # initialize stuff
+        self.connect_to_server()
         self.findAndEnableDevices()
         self.loadMotionFiles()
 
-    def run(self):
-        self.handWave.setLoop(True)
-        self.handWave.play()
-        self.currentlyPlaying = self.handWave
+    def connect_to_server(self):
+        """Establishes a connection to the game server and sends its real GPS position."""
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            print("🔄 Attempting to connect to server...")
+            self.sock.connect(("127.0.0.1", 5555))
+            print("✅ Successfully connected to server.")
 
-        # until a key is pressed
-        key = -1
-        while robot.step(self.timeStep) != -1:
-            pass
+            # Enable and read GPS sensor
+            self.gps = self.getDevice("gps")  # Match the Webots DEF name
+            self.gps.enable(int(self.getBasicTimeStep()))  # Enable GPS updates
+            self.step(int(self.getBasicTimeStep()) * 5)  # Wait for GPS to update
+
+            gps_position = self.gps.getValues()  # Read GPS data
+            spawn_position = [gps_position[0], gps_position[2]]  # Ignore height (y-axis)
+
+            # Receive setup message
+            setup_msg = self.sock.recv(1024).decode().strip()
+            print(f"📡 Received setup message: {setup_msg}")
+
+            parts = setup_msg.split("|")
+            if len(parts) < 4:  # Prevents index errors
+                print(f"⚠️ Invalid SETUP message received: {setup_msg}")
+                return
+
+            self.team_number = int(parts[1])
+            self.client_id = parts[2]
+
+            print(f"🆔 Assigned ID: {self.client_id}, Team: {self.team_number}")
+            print(f"📡 Actual Spawn Position from GPS: {spawn_position}")
+
+            # Send real position to the server
+            self.sock.sendall(f"MOVE|{self.client_id}|{json.dumps(spawn_position)}\n".encode("utf-8"))
+            print(f"📡 Sent Initial Position: {spawn_position}")
+
+            # Start role & command listeners
+            threading.Thread(target=self.listen_for_role_assignment, daemon=True).start()
+            threading.Thread(target=self.listen_for_server_commands, daemon=True).start()
+
+        except Exception as e:
+            print(f"⚠️ Connection to server failed: {e}")
+
+    def listen_for_role_assignment(self):
+        """Waits for the server to assign a role and acknowledges it."""
+        try:
+            self.sock.settimeout(10)  # Avoids blocking forever
+            while True:
+                print("🛰️ Listening for role assignment...")
+                try:
+                    data = self.sock.recv(1024).decode().strip()
+                    if not data:
+                        break
+
+                    if data.startswith("ROLE|"):
+                        self.role = data.split("|")[1]
+                        print(f"📢 Assigned Role: {self.role}")
+
+                        # ✅ Send acknowledgment immediately
+                        self.sock.sendall(f"ROLE_ACK|{self.client_id}\n".encode("utf-8"))
+                        print(f"✅ Role Acknowledged: {self.role}")
+
+                        return  # Exit after acknowledgment
+
+                except socket.timeout:
+                    print("⚠️ Role assignment timed out.")
+                    return
+
+        except Exception as e:
+            print(f"⚠️ Error receiving role: {e}")
+
+    def listen_for_server_commands(self):
+        """Continuously listens for movement and action commands from the server."""
+        try:
+            buffer = ""  # Store incomplete messages
+
+            while True:
+                data = self.sock.recv(1024).decode().strip()
+                if not data:
+                    break
+
+                buffer += data  # Append new data to buffer
+                messages = buffer.split("\n")  # Split messages by newline
+                buffer = messages.pop() if not data.endswith("\n") else ""  # Keep last incomplete message
+
+                for message in messages:
+                    message_parts = message.split("|")
+                    if message_parts[0] == "GAME_STATE":
+                        try:
+                            game_state = json.loads(message_parts[1])
+                            ball_position = game_state["ball_position"]
+                            print(f"📡 Ball position: {ball_position}")
+                            self.move_based_on_role(ball_position)
+                        except Exception as e:
+                            print(f"⚠️ Error parsing game state: {e}")
+        except Exception as e:  # ✅ Ensure there's an except block
+            print(f"Error: {e}")
+
+    def has_fallen(self):
+        """Checks if the robot has fallen based on pitch angle."""
+        rpy = self.inertialUnit.getRollPitchYaw()  # Get roll, pitch, yaw
+
+        pitch_angle = rpy[1]  # Pitch is the second value in roll-pitch-yaw
+        threshold = 1.0  # Adjust this threshold if needed
+
+        if abs(pitch_angle) > threshold:  # Robot has fallen forward or backward
+            return True
+        return False
+
+
+    def move_based_on_role(self, ball_position):
+        """Moves the robot based on its role and corrects sidestepping issues."""
+
+        current_position = self.gps.getValues()
+        x_current, y_current = current_position[0], current_position[2]
+
+        if self.has_fallen():
+            print("⚠️ Robot has fallen! Attempting to stand up.")
+            self.startMotion(self.standup)  # Play stand-up motion
+            while self.currentlyPlaying and not self.currentlyPlaying.isOver():
+                self.step(self.timeStep)  # Wait until the motion is complete
+            print("✅ Robot has recovered!")
+
+        if self.role == "Striker":
+            print(f"⚽ Striker moving towards ball at {ball_position}")
+            self.move_to_position(ball_position)  # Move to ball's x, y position
+
+            # If close to ball, attempt a kick
+            if abs(x_current - ball_position[0]) < 0.2 and abs(y_current - ball_position[1]) < 0.2:
+                self.kick_ball()
+
+        elif self.role == "Goalie":
+            print(f"🥅 Goalie adjusting to ball position {ball_position}")
+            self.move_as_goalie(ball_position)
+
+        elif self.role == "Defender":
+            defensive_position = [ball_position[0] - 0.5, ball_position[1]]
+            self.move_to_position(defensive_position)
+
+    def move_to_position(self, position, step_size=0.5):
+        """Moves the robot toward a given (x, y) position, ensuring correct direction."""
+
+        x_target, y_target = position
+        current_position = self.gps.getValues()
+        x_current, y_current = current_position[0], current_position[2]
+
+        print(f"🚶 Moving from ({x_current}, {y_current}) → ({x_target}, {y_target})")
+
+        while abs(x_current - x_target) > 0.1 or abs(y_current - y_target) > 0.1:
+            dx = x_target - x_current
+            dy = y_target - y_current
+
+            # Normalize movement direction
+            move_x = step_size if dx > 0 else -step_size if dx < 0 else 0
+            move_y = step_size if dy > 0 else -step_size if dy < 0 else 0
+
+            # Move in the correct direction
+            if move_x > 0:
+                self.startMotion(self.forwards)
+            elif move_x < 0:
+                self.startMotion(self.backwards)
+
+            if move_y > 0:
+                self.startMotion(self.sideStepRight)
+            elif move_y < 0:
+                self.startMotion(self.sideStepLeft)
+
+            # Wait for movement to complete
+            while self.currentlyPlaying and not self.currentlyPlaying.isOver():
+                self.step(self.timeStep)
+
+            # Update current position
+            self.step(self.timeStep * 5)
+            current_position = self.gps.getValues()
+            x_current, y_current = current_position[0], current_position[2]
+
+        print(f"✅ Reached target position: ({x_target}, {y_target})")
+
+        # ✅ Send updated position to the server
+        self.sock.sendall(f"MOVE|{self.client_id}|{json.dumps([x_target, y_target])}\n".encode("utf-8"))
+
+    def kick_ball(self):
+        """Executes a kick and informs the server."""
+        if hasattr(self, "kick_motion"):
+            self.kick_motion.play()
+            print("⚽ Kicking the ball!")
+            self.sock.sendall(f"KICK|{self.client_id}\n".encode("utf-8"))  # ✅ Notify server
+        else:
+            print("⚠️ Kick motion not loaded.")
+
+    def run(self):
+        """Main loop for the robot."""
+        print("🤖 Robot is ready and waiting for server commands.")
+        while self.step(self.timeStep) != -1:
+            pass  # The robot will now respond only to MOVE and KICK commands.
+
+    def is_in_goal_area(self, position):
+        """Checks if the given position is within the goal area."""
+        goal_area_x = [-0.5, 0.5]  # Define the goal area (x-axis)
+        goal_area_y = [-0.5, 0.5]  # Define the goal area (y-axis)
+        return (goal_area_x[0] <= position[0] <= goal_area_x[1] and
+                goal_area_y[0] <= position[1] <= goal_area_y[1])
+
+    def move_as_goalie(self, ball_position):
+        """Goalie movement logic: stay in goal area and block shots with limited movement."""
+        
+        if self.has_fallen():
+            print("⚠️ Goalie has fallen! Standing up.")
+            self.startMotion(self.standup)
+            while self.currentlyPlaying and not self.currentlyPlaying.isOver():
+                self.step(self.timeStep)
+            print("✅ Goalie has recovered!")
+
+        goal_x = -4.5  # Goalie's x-position should remain near the goal line
+        goal_area_y = [-0.5, 0.5]  # Goalkeeper's allowed movement range
+
+        # Get current position
+        current_position = self.gps.getValues()
+        x_current, y_current = current_position[0], current_position[2]
+
+        # Limit movement: Move only side-to-side within the goal area
+        target_x = goal_x  # Always keep the goalie near the goal
+        target_y = max(goal_area_y[0], min(goal_area_y[1], ball_position[1]))
+
+        # Move with smaller steps to avoid falling
+        self.move_to_position([target_x, target_y], step_size=0.1)
+
+
+    def move_as_striker(self, ball_position):
+        """Striker movement logic: move toward the ball and attempt to score."""
+        self.move_to_position(ball_position)  # Move toward the ball
+
+        # If close to the ball, attempt to kick
+        current_position = self.gps.getValues()
+        x_current, y_current = current_position[0], current_position[2]
+        if abs(x_current - ball_position[0]) < 0.2 and abs(y_current - ball_position[1]) < 0.2:
+            self.kick_ball()
+
+    def move_as_defender(self, ball_position):
+        """Defender movement logic: block opponents and clear the ball."""
+        # Move toward the ball if it is in the defensive half
+        if ball_position[0] < 0:  # Example: defensive half is x < 0
+            self.move_to_position(ball_position)
+        else:
+            # Stay in a defensive position
+            self.move_to_position([-1.0, 0])  # Example: stay at x = -1.0, y = 0
+
 
 # create the Robot instance and run main loop
 robot = Nao()
