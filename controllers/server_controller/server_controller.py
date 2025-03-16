@@ -8,6 +8,7 @@ import time
 host = "127.0.0.1"
 port = 5555
 
+
 class GameServer:
     def __init__(self, players_limit=6):
         self.client_lock = threading.Lock()
@@ -17,8 +18,8 @@ class GameServer:
         self.team1 = set()
         self.team2 = set()
         self.roles = ["Striker", "Midfielder", "Defender"]  # Assign these after goalies
-        self.ball_position = [0, 0]  
-        self.player_positions = {}   # Store player positions
+        self.ball_position = [0, 0]
+        self.player_positions = {}  # Store player positions
 
     def start_server(self):
         """Start the server and wait for connections."""
@@ -32,14 +33,16 @@ class GameServer:
         except ConnectionError as error:
             print(f"Error binding server: {error}")
             return
-        
+
         threading.Thread(target=self.send_game_updates, daemon=True).start()
 
         while True:
             try:
                 connection, address = server.accept()
                 self.handle_client_connection(connection, address)
-                thread = threading.Thread(target=self.handle_client_communication, args=(connection,))
+                thread = threading.Thread(
+                    target=self.handle_client_communication, args=(connection,)
+                )
                 thread.start()
             except Exception as e:
                 print(f"Error while accepting connection: {e}")
@@ -112,17 +115,17 @@ class GameServer:
             speed = 1.0  # Adjustable kick speed
 
             # Normalize direction vector and apply movement
-            magnitude = (direction_x ** 2 + direction_y ** 2) ** 0.5
+            magnitude = (direction_x**2 + direction_y**2) ** 0.5
             if magnitude > 0:
                 direction_x /= magnitude
                 direction_y /= magnitude
-            
+
             # Update ball position
             self.ball_position[0] += direction_x * speed
             self.ball_position[1] += direction_y * speed
 
             print(f"⚽ Ball moved to {self.ball_position}")
-        
+
     def handle_client_connection(self, connection, address):
         """Handles new client connections and assigns a team."""
         player_id = str(uuid.uuid4())
@@ -147,11 +150,12 @@ class GameServer:
 
         # Roles should be assigned **after** clients send their positions.
         self.assign_roles()
-    
 
     def assign_roles(self):
         """Dynamically assigns roles ensuring a balanced game even in 1v1 testing."""
-        if len(self.player_positions) < 2:  # Ensure at least 2 players before assigning roles
+        if (
+            len(self.player_positions) < 2
+        ):  # Ensure at least 2 players before assigning roles
             print("⚠️ Waiting for at least 2 players before assigning roles.")
             return
 
@@ -173,10 +177,12 @@ class GameServer:
 
         print(f"✅ Roles Assigned: {assigned_roles}")
 
-
     def distance_to_ball(self, position):
         """Calculates the Euclidean distance from a player to the ball."""
-        return ((self.ball_position[0] - position[0]) ** 2 + (self.ball_position[1] - position[1]) ** 2) ** 0.5
+        return (
+            (self.ball_position[0] - position[0]) ** 2
+            + (self.ball_position[1] - position[1]) ** 2
+        ) ** 0.5
 
     def send_role_update(self, player_id, role):
         """Sends the assigned role to a player."""
@@ -188,12 +194,12 @@ class GameServer:
     def send_game_updates(self):
         """Continuously send properly formatted game state updates to clients."""
         while True:
-            time.sleep(1)  
+            time.sleep(1)
 
             game_state = {
                 "ball_position": self.ball_position,
                 "players": self.player_positions,
-                "strategy": self.get_current_strategy()
+                "strategy": self.get_current_strategy(),
             }
 
             # Ensure message is properly JSON-encoded and newline-separated
@@ -208,7 +214,7 @@ class GameServer:
 
     def get_current_strategy(self):
         """Determines the current team strategy based on game conditions."""
-        
+
         # Count how many players are near the ball
         ball_x, ball_y = self.ball_position
         players_near_ball = 0
@@ -237,30 +243,36 @@ class GameServer:
                 return "defensive"
             else:  # Ball is in attacking half
                 return "aggressive"
-        
+
         # Default to "neutral" if no team is currently in possession
         return "neutral"
 
-
     def process_action_queue(self):
-      """Processes queued critical actions with acknowledgment to ensure synchronization."""
-      while self.action_queue:
-          action_type, player_id = self.action_queue.pop(0)
+        """Processes queued critical actions with acknowledgment to ensure synchronization."""
+        while self.action_queue:
+            action_type, player_id = self.action_queue.pop(0)
 
-          # Broadcast action request to all clients
-          for conn in self.clients.values():
-              conn.sendall(f"VERIFY_ACTION|{action_type}|{player_id}\n".encode("utf-8"))
+            # Broadcast action request to all clients
+            for conn in self.clients.values():
+                conn.sendall(
+                    f"VERIFY_ACTION|{action_type}|{player_id}\n".encode("utf-8")
+                )
 
-          # Wait for acknowledgment from majority (not all)
-          if self.await_acknowledgment(player_id, action_type, required_ack_ratio=0.5):
-              print(f"✅ {action_type} confirmed by majority.")
-          else:
-              print(f"❌ {action_type} failed, reverting.")
-              for conn in self.clients.values():
-                  conn.sendall(f"REVERT_ACTION|{action_type}|{player_id}\n".encode("utf-8"))
+            # Wait for acknowledgment from majority (not all)
+            if self.await_acknowledgment(
+                player_id, action_type, required_ack_ratio=0.5
+            ):
+                print(f"✅ {action_type} confirmed by majority.")
+            else:
+                print(f"❌ {action_type} failed, reverting.")
+                for conn in self.clients.values():
+                    conn.sendall(
+                        f"REVERT_ACTION|{action_type}|{player_id}\n".encode("utf-8")
+                    )
 
-
-    def await_acknowledgment(self, player_id, action_type, required_ack_ratio=0.5, timeout=1):
+    def await_acknowledgment(
+        self, player_id, action_type, required_ack_ratio=0.5, timeout=1
+    ):
         """Ensures a critical action is acknowledged by a majority of clients before proceeding."""
         acknowledgments = set()
         start_time = time.time()
@@ -274,7 +286,9 @@ class GameServer:
 
                     if ack == f"{action_type}_ACK|{player_id}":
                         acknowledgments.add((player_id, action_type))
-                        print(f"✅ Acknowledgment received for {action_type} from {player_id}")
+                        print(
+                            f"✅ Acknowledgment received for {action_type} from {player_id}"
+                        )
 
                 except socket.timeout:
                     continue  # Avoid blocking
@@ -283,10 +297,14 @@ class GameServer:
                     continue
 
             if len(acknowledgments) >= required_acks:
-                print(f"✅ {action_type} confirmed by majority ({len(acknowledgments)}/{required_acks})")
+                print(
+                    f"✅ {action_type} confirmed by majority ({len(acknowledgments)}/{required_acks})"
+                )
                 return True  # Majority confirmed
 
-        print(f"❌ {action_type} failed: only {len(acknowledgments)}/{required_acks} acknowledgments received.")
+        print(
+            f"❌ {action_type} failed: only {len(acknowledgments)}/{required_acks} acknowledgments received."
+        )
         return False  # Timeout reached
 
     def remove_client(self, connection):
@@ -301,6 +319,7 @@ class GameServer:
                         self.team2.discard(player_id)
                     break
         connection.close()
+
 
 # Start the server in a separate thread
 game_server = GameServer(6)

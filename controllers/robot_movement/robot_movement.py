@@ -2,15 +2,13 @@ from controller import Robot, Motion
 import socket
 import threading
 import json
-import time
-
-
 
 class Nao(Robot):
     PHALANX_MAX = 8
+    #region Robot movement controller
 
-    # load motion files
-    def loadMotionFiles(self):
+    # Load motion files
+    def load_motion_files(self):
         self.handWave = Motion('../../motions/HandWave.motion')
         self.forwards = Motion('../../motions/Forwards50.motion')
         self.backwards = Motion('../../motions/Backwards.motion')
@@ -21,55 +19,50 @@ class Nao(Robot):
         self.taiChi = Motion('../../motions/TaiChi.motion')
         self.standup = Motion('../../motions/StandUpFromFront.motion')
 
-    def startMotion(self, motion):
-        # interrupt current motion
+    # Starts a robot motion
+    def start_motion(self, motion):
+        # Interrupt current motion
         if self.currentlyPlaying:
             self.currentlyPlaying.stop()
-
-        # start new motion
+        # Start new motion
         motion.play()
         self.currentlyPlaying = motion
 
-    # the accelerometer axes are oriented as on the real robot
-    # however the sign of the returned values may be opposite
-    def printAcceleration(self):
+    # Prints the current acceleration of the robot
+    def print_acceleration(self):
+        """The accelerometer axes are oriented as on the real robot however the sign of the returned values may be opposite"""
         acc = self.accelerometer.getValues()
         print('----------accelerometer----------')
         print('acceleration: [ x y z ] = [%f %f %f]' % (acc[0], acc[1], acc[2]))
 
-    # the gyro axes are oriented as on the real robot
-    # however the sign of the returned values may be opposite
+    # Prints the current velocity of the robot
     def printGyro(self):
+        """The gyro axes are oriented as on the real robot however the sign of the returned values may be opposite"""
         vel = self.gyro.getValues()
         print('----------gyro----------')
-        # z value is meaningless due to the orientation of the Gyro
-        print('angular velocity: [ x y ] = [%f %f]' % (vel[0], vel[1]))
+        print('angular velocity: [ x y ] = [%f %f]' % (vel[0], vel[1])) # Z value is meaningless due to the orientation of the Gyro
 
+    # Prints the current position of the robot
     def printGps(self):
         p = self.gps.getValues()
         print('----------gps----------')
         print('position: [ x y z ] = [%f %f %f]' % (p[0], p[1], p[2]))
 
-    # the InertialUnit roll/pitch angles are equal to naoqi's AngleX/AngleY
-    def printInertialUnit(self):
+    # Prints the current rotation of the robot
+    def print_inertial_unit(self):
+        """The InertialUnit roll/pitch angles are equal to naoqi's AngleX/AngleY"""
         rpy = self.inertialUnit.getRollPitchYaw()
         print('----------inertial unit----------')
         print('roll/pitch/yaw: [%f %f %f]' % (rpy[0], rpy[1], rpy[2]))
 
-    def printFootSensors(self):
-        fsv = []  # force sensor values
-
+    # Prints the forces on the foot sensors
+    def print_foot_sensors(self):
+        fsv = []  # Force sensor values
         fsv.append(self.fsr[0].getValues())
         fsv.append(self.fsr[1].getValues())
-
-        left = []
-        right = []
-
-        newtonsLeft = 0
-        newtonsRight = 0
-
-        # The coefficients were calibrated against the real
-        # robot so as to obtain realistic sensor values.
+        left, right = [], []
+        newtonsLeft, newtonsRight = 0, 0 
+        # The coefficients were calibrated against the real robot so as to obtain realistic sensor values.
         left.append(fsv[0][2] / 3.4 + 1.5 * fsv[0][0] + 1.15 * fsv[0][1])  # Left Foot Front Left
         left.append(fsv[0][2] / 3.4 + 1.5 * fsv[0][0] - 1.15 * fsv[0][1])  # Left Foot Front Right
         left.append(fsv[0][2] / 3.4 - 1.5 * fsv[0][0] - 1.15 * fsv[0][1])  # Left Foot Rear Right
@@ -104,11 +97,13 @@ class Nao(Robot):
         print('total: %f Newtons, %f kilograms'
               % ((newtonsLeft + newtonsRight), ((newtonsLeft + newtonsRight) / 9.81)))
 
-    def printFootBumpers(self):
+    # Prints the forces on the foot bumpers
+    def print_foot_bumpers(self):
         ll = self.lfootlbumper.getValue()
         lr = self.lfootrbumper.getValue()
         rl = self.rfootlbumper.getValue()
         rr = self.rfootrbumper.getValue()
+
         print('----------foot bumpers----------')
         print('+ left ------ right +')
         print('+--------+ +--------+')
@@ -117,7 +112,8 @@ class Nao(Robot):
         print('|        | |        |')
         print('+--------+ +--------+')
 
-    def printUltrasoundSensors(self):
+    # Prints the value of the ultrasound sensors
+    def print_ultrasound_sensors(self):
         dist = []
         for i in range(0, len(self.us)):
             dist.append(self.us[i].getValue())
@@ -125,12 +121,13 @@ class Nao(Robot):
         print('-----ultrasound sensors-----')
         print('left: %f m, right %f m' % (dist[0], dist[1]))
 
-    def printCameraImage(self, camera):
-        scaled = 2  # defines by which factor the image is subsampled
+    # Prints the view of the camera
+    def print_camera_image(self, camera):
+        scaled = 2  # Defines by which factor the image is subsampled
         width = camera.getWidth()
         height = camera.getHeight()
 
-        # read rgb pixel values from the camera
+        # Read rgb pixel values from the camera
         image = camera.getImage()
 
         print('----------camera image (gray levels)---------')
@@ -144,17 +141,17 @@ class Nao(Robot):
                 line = line + str(int(gray))
             print(line)
 
-    def setAllLedsColor(self, rgb):
-        # these leds take RGB values
+    # Set the colors of the leds
+    def set_all_leds_color(self, rgb):
+        # These leds take RGB values
         for i in range(0, len(self.leds)):
             self.leds[i].set(rgb)
-
-        # ear leds are single color (blue)
-        # and take values between 0 - 255
+        # Ear leds are single color (blue) and take values between 0 - 255
         self.leds[5].set(rgb & 0xFF)
         self.leds[6].set(rgb & 0xFF)
 
-    def setHandsAngle(self, angle):
+    # Controls the hands of the robot
+    def set_hands_angle(self, angle):
         for i in range(0, self.PHALANX_MAX):
             clampedAngle = angle
             if clampedAngle > self.maxPhalanxMotorPosition[i]:
@@ -167,47 +164,48 @@ class Nao(Robot):
             if len(self.lphalanx) > i and self.lphalanx[i] is not None:
                 self.lphalanx[i].setPosition(clampedAngle)
 
-    def findAndEnableDevices(self):
-        # get the time step of the current world.
+    # Start and find the parts of the robot
+    def find_and_enable_devices(self):
+        # Get the time step of the current world.
         self.timeStep = int(self.getBasicTimeStep())
 
-        # camera
+        # Camera
         self.cameraTop = self.getDevice("CameraTop")
         self.cameraBottom = self.getDevice("CameraBottom")
         self.cameraTop.enable(4 * self.timeStep)
         self.cameraBottom.enable(4 * self.timeStep)
 
-        # accelerometer
+        # Accelerometer
         self.accelerometer = self.getDevice('accelerometer')
         self.accelerometer.enable(4 * self.timeStep)
 
-        # gyro
+        # Gyro
         self.gyro = self.getDevice('gyro')
         self.gyro.enable(4 * self.timeStep)
 
-        # gps
+        # Gps
         self.gps = self.getDevice('gps')
         self.gps.enable(4 * self.timeStep)
 
-        # inertial unit
+        # Inertial unit
         self.inertialUnit = self.getDevice('inertial unit')
         self.inertialUnit.enable(self.timeStep)
 
-        # ultrasound sensors
+        # Ultrasound sensors
         self.us = []
         usNames = ['Sonar/Left', 'Sonar/Right']
         for i in range(0, len(usNames)):
             self.us.append(self.getDevice(usNames[i]))
             self.us[i].enable(self.timeStep)
 
-        # foot sensors
+        # Foot sensors
         self.fsr = []
         fsrNames = ['LFsr', 'RFsr']
         for i in range(0, len(fsrNames)):
             self.fsr.append(self.getDevice(fsrNames[i]))
             self.fsr[i].enable(self.timeStep)
 
-        # foot bumpers
+        # Foot bumpers
         self.lfootlbumper = self.getDevice('LFoot/Bumper/Left')
         self.lfootrbumper = self.getDevice('LFoot/Bumper/Right')
         self.rfootlbumper = self.getDevice('RFoot/Bumper/Left')
@@ -217,7 +215,7 @@ class Nao(Robot):
         self.rfootlbumper.enable(self.timeStep)
         self.rfootrbumper.enable(self.timeStep)
 
-        # there are 7 controlable LED groups in Webots
+        # There are 7 controlable LED groups in Webots
         self.leds = []
         self.leds.append(self.getDevice('ChestBoard/Led'))
         self.leds.append(self.getDevice('RFoot/Led'))
@@ -227,9 +225,7 @@ class Nao(Robot):
         self.leds.append(self.getDevice('Ears/Led/Right'))
         self.leds.append(self.getDevice('Ears/Led/Left'))
 
-        # get phalanx motor tags
-        # the real Nao has only 2 motors for RHand/LHand
-        # but in Webots we must implement RHand/LHand with 2x8 motors
+        # Get phalanx motor tags for RHand/LHand containing 2x8 motors
         self.lphalanx = []
         self.rphalanx = []
         self.maxPhalanxMotorPosition = []
@@ -237,28 +233,24 @@ class Nao(Robot):
         for i in range(0, self.PHALANX_MAX):
             self.lphalanx.append(self.getDevice("LPhalanx%d" % (i + 1)))
             self.rphalanx.append(self.getDevice("RPhalanx%d" % (i + 1)))
-
-            # assume right and left hands have the same motor position bounds
+            # Assume right and left hands have the same motor position bounds
             self.maxPhalanxMotorPosition.append(self.rphalanx[i].getMaxPosition())
             self.minPhalanxMotorPosition.append(self.rphalanx[i].getMinPosition())
 
-        # shoulder pitch motors
+        # Shoulder pitch motors
         self.RShoulderPitch = self.getDevice("RShoulderPitch")
         self.LShoulderPitch = self.getDevice("LShoulderPitch")
 
-        # keyboard
-        self.keyboard = self.getKeyboard()
-        self.keyboard.enable(10 * self.timeStep)
-
+    #endregion
     def __init__(self):
         Robot.__init__(self)
         self.currentlyPlaying = False
         self.sock = None  # Store socket connection
         self.role = None   # Store assigned role
 
+        self.load_motion_files()
+        self.find_and_enable_devices()
         self.connect_to_server()
-        self.findAndEnableDevices()
-        self.loadMotionFiles()
 
     def connect_to_server(self):
         """Establishes a connection to the game server and sends its real GPS position."""
@@ -377,7 +369,7 @@ class Nao(Robot):
 
         if self.has_fallen():
             print("⚠️ Robot has fallen! Attempting to stand up.")
-            self.startMotion(self.standup)  # Play stand-up motion
+            self.start_motion(self.standup)  # Play stand-up motion
             while self.currentlyPlaying and not self.currentlyPlaying.isOver():
                 self.step(self.timeStep)  # Wait until the motion is complete
             print("✅ Robot has recovered!")
@@ -417,14 +409,14 @@ class Nao(Robot):
 
             # Move in the correct direction
             if move_x > 0:
-                self.startMotion(self.forwards)
+                self.start_motion(self.forwards)
             elif move_x < 0:
-                self.startMotion(self.backwards)
+                self.start_motion(self.backwards)
 
             if move_y > 0:
-                self.startMotion(self.sideStepRight)
+                self.start_motion(self.sideStepRight)
             elif move_y < 0:
-                self.startMotion(self.sideStepLeft)
+                self.start_motion(self.sideStepLeft)
 
             # Wait for movement to complete
             while self.currentlyPlaying and not self.currentlyPlaying.isOver():
@@ -467,7 +459,7 @@ class Nao(Robot):
         
         if self.has_fallen():
             print("⚠️ Goalie has fallen! Standing up.")
-            self.startMotion(self.standup)
+            self.start_motion(self.standup)
             while self.currentlyPlaying and not self.currentlyPlaying.isOver():
                 self.step(self.timeStep)
             print("✅ Goalie has recovered!")
