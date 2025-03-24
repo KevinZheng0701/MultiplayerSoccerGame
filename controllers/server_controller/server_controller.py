@@ -1,56 +1,93 @@
-from controller import Robot
+from controller import Supervisor
 import socket
 import threading
 import uuid
-import json
 import time
+import math
 
-host = "127.0.0.1"
-port = 5555
-
-
-class GameServer:
-    def __init__(self, players_limit=6):
-        self.client_lock = threading.Lock()
+class Team:
+    def __init__(self, capacity = 0):
+        self.players = set()
         self.team_lock = threading.Lock()
+        self.capacity = capacity
+
+    def __len__(self):
+        """Return the number of players in the team"""
+        return len(self.players)
+    
+    def add_player(self, player):
+        """Add a player to the team"""
+        with self.team_lock:
+            if len(self.players) < self.capacity:
+                self.players.add(player)
+
+    def remove_player(self, player):
+        """Remove a player from the team"""
+        with self.team_lock:
+            self.players.discard(player)
+
+    def get_players(self):
+        """Get all players from the team"""
+        return list(self.players)
+    
+    def get_team_strategy(self, state, ball):
+        """Decide the role for each player"""
+        return None
+
+class GameServer(Supervisor):
+    def __init__(self, players_limit=6):
+        super().__init__() # Initialize as a supervisor so it has access to objects in the world
         self.players_limit = players_limit
-        self.clients = {}
-        self.team1 = set()
-        self.team2 = set()
-        self.roles = ["Striker", "Midfielder", "Defender"]  # Assign these after goalies
-        self.ball_position = [0, 0]
-        self.player_positions = {}  # Store player positions
+        self.client_lock = threading.Lock()
+        self.clients = {} # Store player id to their connections
+        self.team1 = Team(players_limit // 2)
+        self.team2 = Team(players_limit // 2)
+        self.player_states = {}  # Store player game stats
+        self.ball = self.getFromDef("BALL") # Get the soccer ball in the world 
+        self.players = {} # Store the reference to the robots
 
     def start_server(self):
-        """Start the server and wait for connections."""
-        print("Starting server...")
+        """Start the server and wait for connections"""
+        print("🔄 Starting server...")
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             server.bind((host, port))
             server.listen(self.players_limit)
-            print(f"Server started on {host}:{port}")
+            print(f"✅ Server started on {host}:{port}")
         except ConnectionError as error:
-            print(f"Error binding server: {error}")
+            print(f"⚠️ Error binding server: {error}")
             return
-
-        threading.Thread(target=self.send_game_updates, daemon=True).start()
-
         while True:
             try:
                 connection, address = server.accept()
                 self.handle_client_connection(connection, address)
                 thread = threading.Thread(
-                    target=self.handle_client_communication, args=(connection,)
+                    target=self.listen_for_client, args=(connection,)
                 )
                 thread.start()
             except Exception as e:
-                print(f"Error while accepting connection: {e}")
-                print(f"Error details: {e}")
+                print(f"⚠️ Error while accepting connection: {e}")
                 break
 
-    def handle_client_communication(self, connection):
-        """Handles incoming messages from clients."""
+    def listen_for_client(self, connection):
+        """Listen for incoming messages from clients"""
+        try:
+            buffer = ""  # Buffer to store the message
+            while True:
+                data = connection.recv(1024)
+                if not data:
+                    print("⚠️ Client disconnected from server.")
+                    break
+                buffer += data.decode("utf-8")
+                while "\n" in buffer:
+                    message, buffer = buffer.split("\n", 1)
+                    self.handle_message(message)
+        except Exception as error:
+            print(f"⚠️ Client error: {error}")
+        finally:
+            self.remove_client(connection)
+        """
         try:
             while True:
                 data = connection.recv(1024).decode().strip()
@@ -88,21 +125,101 @@ class GameServer:
 
                 elif message_type == "GOAL":
                     print("🥅 Goal scored!")
+        """
 
-        except Exception as e:
-            print(f"⚠️ Client error: {e}")
+    def handle_message(self, message):
+        """Handle messages from the clients"""
+        message_parts = message.split("|")
+        message_type = message_parts[0]
+        sender = message_parts[1]
+        match message_type:
+            case "POS":
+                # Update the position of the client and broadcast it to every other clients
+                x_position, y_position = message_parts[2], message_parts[3]
+                x_rotation, y_rotation, z_rotation = message_parts[4], message_parts[5], message_parts[6]
+                self.update_position(sender, x_position, y_position)
+                self.update_rotation(sender, x_rotation, y_rotation, z_rotation)
+                message = f'POS|{sender}|{x_position}|{y_position}|{x_rotation}|{y_rotation}|{z_rotation}\n'
+                self.broadcast(message)
+            case "ACK":
+                print("Acknowledgement.")
+            case "MOVE":
+                print("Moving.")
+                #position = message_parts[1]
+                #broadcast(f"MOVE|{sender}|{position}", sender)
+            case "GOAL":
+                print("Scored a goal.")
+                #broadcast(f"GOAL|{sender}")
+            case "KICK":
+                print("Ball kick.")
+                #broadcast(f"KICK|{sender}")
+            case "GET":
+                print("Requesting information.")
+                #sender.sendall("Data".encode("utf-8"))
+            case _:
+                print(message)
+                print("Unknown Type.")
 
-        finally:
-            self.remove_client(connection)
+    def handle_client_connection(self, connection, address):
+        """Handles new client connections and assigns the client a team and a unqiue identifer"""
+        player_id = str(uuid.uuid4())
+        print(f"🆔 New client connection: {player_id}, {address}.")
+        # Add player to the clients list
+        with self.client_lock:
+            self.clients[player_id] = connection
+            self.players[player_id] = self.getFromDef("Robot_" + str(len(self.clients))) # Add the robot reference
+        # Assign client a team
+        if len(self.team1) <= len(self.team2):
+            team_number = 1
+            self.team1.add_player(player_id)
+        else:
+            team_number = 2
+            self.team2.add_player(player_id)
+
+        # Send client information
+        message = f"INFO|{team_number}|{player_id}|\n"
+        connection.sendall(message.encode("utf-8"))
+        print(f"📢 Clients connected: {len(self.clients)}")
+        
+        # If all clients joined, then start the game by first assigning initial roles
+        with self.client_lock:
+            if len(self.clients) == self.players_limit:
+                self.send_intial_states()
+
+    def send_intial_states(self):
+        '''One member from each team will be a designated goalie, one will have no roles, and the rest will be midfielder'''
+        self.assign_initial_team_states(self.team1)
+        self.assign_initial_team_states(self.team2)
+        # Send the role and starting information to all the clients
+        for player, details in self.player_states.items():
+            role = details[0]
+            x_position, y_position = details[2], details[3]
+            x_rotation, y_rotation, z_rotation = details[4], details[5], details[6]
+            conn = self.clients[player]
+            conn.sendall(f'ROLE|{role}\n'.encode('utf-8'))
+            message = f'POS|{player}|{x_position}|{y_position}|{x_rotation}|{y_rotation}|{z_rotation}\n'
+            self.broadcast(message)
+        # Send ball position to clients
+        self.send_ball_position()
+
+    def assign_initial_team_states(self, team):
+        """Assign starting states to players in a team"""
+        players = team.get_players()
+         # In the order of role, current action, xy coordinate, rotation, etc
+        if len(players) == 1:
+            self.player_states[players[0]] = ["None", None, 0, 0, 0, 0, 0]
+        else:
+            self.player_states[players[0]] = ["Goalie", None, 0, 0, 0, 0, 0]
+            self.player_states[players[1]] = ["None", None, 0, 0, 0, 0, 0]
+        for i in range(2, len(players)):
+            self.player_states[players[i]] = ["Midfielder", None, 0, 0, 0, 0, 0]
 
     def is_near_ball(self, player_id, threshold=0.5):
         """Checks if the player is close enough to the ball to kick."""
-        if player_id in self.player_positions:
-            player_x, player_y = self.player_positions[player_id]
-            ball_x, ball_y = self.ball_position
-            distance = ((player_x - ball_x) ** 2 + (player_y - ball_y) ** 2) ** 0.5
-            return distance <= threshold  # Allow kicking if within `threshold` meters
-        return False
+        player_x, player_y = self.player_states[player_id]
+        ball_x, ball_y = self.ball_position
+        distance = ((player_x - ball_x) ** 2 + (player_y - ball_y) ** 2) ** 0.5
+        return distance <= threshold  # Allow kicking if within `threshold` meters
 
     def apply_ball_kick(self, player_id):
         """Moves the ball in the direction of the player's kick."""
@@ -126,91 +243,11 @@ class GameServer:
 
             print(f"⚽ Ball moved to {self.ball_position}")
 
-    def handle_client_connection(self, connection, address):
-        """Handles new client connections and assigns a team."""
-        player_id = str(uuid.uuid4())
-        print(f"New client connection: {player_id}, {address}.")
-
-        with self.client_lock:
-            self.clients[player_id] = connection
-        with self.team_lock:
-            if len(self.team1) <= len(self.team2):
-                team_number = 1
-                self.team1.add(player_id)
-            else:
-                team_number = 2
-                self.team2.add(player_id)
-
-        # Send setup information (No spawn position assigned)
-        setup_message = f"SETUP|{team_number}|{player_id}|[]\n"
-        connection.sendall(setup_message.encode("utf-8"))
-        print(f"📡 Sent setup message to {player_id}: {setup_message.strip()}")
-
-        print(f"Clients connected: {len(self.clients)}")
-
-        # Roles should be assigned **after** clients send their positions.
-        self.assign_roles()
-
-    def assign_roles(self):
-        """Dynamically assigns roles ensuring a balanced game even in 1v1 testing."""
-        if (
-            len(self.player_positions) < 2
-        ):  # Ensure at least 2 players before assigning roles
-            print("⚠️ Waiting for at least 2 players before assigning roles.")
-            return
-
-        assigned_roles = {}
-
-        # Get the two players
-        players = list(self.player_positions.keys())
-
-        # Assign the first player as Goalie, second as Striker
-        assigned_roles[players[0]] = "Goalie"
-        assigned_roles[players[1]] = "Striker"
-
-        # Store assigned roles
-        self.roles = assigned_roles
-
-        # Send roles to clients
-        for player_id, role in assigned_roles.items():
-            self.send_role_update(player_id, role)
-
-        print(f"✅ Roles Assigned: {assigned_roles}")
-
-    def distance_to_ball(self, position):
+    def player_distance_to_ball(self, player):
         """Calculates the Euclidean distance from a player to the ball."""
-        return (
-            (self.ball_position[0] - position[0]) ** 2
-            + (self.ball_position[1] - position[1]) ** 2
-        ) ** 0.5
-
-    def send_role_update(self, player_id, role):
-        """Sends the assigned role to a player."""
-        if player_id in self.clients:
-            role_message = f"ROLE|{role}\n"
-            self.clients[player_id].sendall(role_message.encode("utf-8"))
-            print(f"✅ Sent Role: {role} to Player {player_id}")
-
-    def send_game_updates(self):
-        """Continuously send properly formatted game state updates to clients."""
-        while True:
-            time.sleep(1)
-
-            game_state = {
-                "ball_position": self.ball_position,
-                "players": self.player_positions,
-                "strategy": self.get_current_strategy(),
-            }
-
-            # Ensure message is properly JSON-encoded and newline-separated
-            message = f"GAME_STATE|{json.dumps(game_state, separators=(',', ':'))}\n"
-
-            with self.client_lock:
-                for conn in self.clients.values():
-                    try:
-                        conn.sendall(message.encode("utf-8"))
-                    except BrokenPipeError:
-                        continue
+        player = self.player_states[player]
+        x_position, y_position = player[2], player[3]
+        return math.sqrt((self.ball_position[0] - x_position) ** 2 + (self.ball_position[2] - y_position) ** 2)
 
     def get_current_strategy(self):
         """Determines the current team strategy based on game conditions."""
@@ -307,27 +344,57 @@ class GameServer:
         )
         return False  # Timeout reached
 
+    def send_ball_position(self):
+        """Send the current ball position to the clients"""
+        ball_position = self.ball.getPosition()
+        self.broadcast(f'BALL|{ball_position[0]}|{ball_position[1]}|{ball_position[2]}\n')
+
+    def update_position(self, player, x, y):
+        """Update the position of the player"""
+        self.players[player][2] = x
+        self.players[player][3] = y
+
+    def update_rotation(self, player, x, y, z):
+        """Update the rotation of the player"""
+        self.players[player][4] = x
+        self.players[player][5] = y
+        self.players[player][6] = z
+
+    def update_ball_position(self, x, y, z):
+        """Update the position of the ball"""
+        self.ball[0] = x
+        self.ball[1] = y
+        self.ball[2] = z
+
     def remove_client(self, connection):
-        """Removes disconnected clients."""
+        """Removes disconnected clients"""
         with self.client_lock:
-            for player_id, conn in list(self.clients.items()):
+            for player_id, conn in self.clients.items():
                 if conn == connection:
-                    print(f"❌ Removing player {player_id}")
                     del self.clients[player_id]
                     with self.team_lock:
                         self.team1.discard(player_id)
                         self.team2.discard(player_id)
+                    print(f"❌ Removing player {player_id}")
                     break
         connection.close()
 
+    def broadcast(self, message, sender = None):
+        """Sends message to every client besides the sender"""
+        for id, conn in self.clients.items():
+            if id != sender:
+                conn.sendall(message.encode("utf-8"))
+
+host = "127.0.0.1"
+port = 5555
 
 # Start the server in a separate thread
 game_server = GameServer(6)
 server_thread = threading.Thread(target=game_server.start_server, daemon=True)
 server_thread.start()
 
+timestep = int(game_server.getBasicTimeStep())
+
 # Webots main loop
-robot = Robot()
-timestep = int(robot.getBasicTimeStep())
-while robot.step(timestep) != 1:
+while game_server.step(timestep) != 1:
     pass

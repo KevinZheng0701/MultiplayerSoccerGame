@@ -3,7 +3,8 @@ import socket
 import threading
 import json
 import time
-
+import math
+import heapq
 
 class Nao(Robot):
     PHALANX_MAX = 8
@@ -424,17 +425,18 @@ class Nao(Robot):
             # Stay in a defensive position
             self.move_to_position([-1.0, 0])  # Example: stay at x = -1.0, y = 0
 
-
 class SoccerRobot:
     def __init__(self):
-        self.players = {}
-        self.ball_position = [0, 0]
-        self.player_positions = {}  # Store player positions
+        self.player_team = {}
+        self.ball_position = [0, 0, 0]
+        self.players = {}  # Store player positions and role status
         self.team_number = 0
         self.player_id = 0
-        self.role = ""
+        self.role = None
         self.sock = None
         self.robot = Nao()
+        self.action_queue = [] # Priority queue for handling actions
+        self.target_positon = [0, 0] # The position the robot is heading towards
 
     def connect_to_server(self):
         """Establishes a connection to the game server and sends its GPS position"""
@@ -472,6 +474,23 @@ class SoccerRobot:
         message_parts = message.split("|")
         message_type = message_parts[0]
         match message_type:
+            case "POS":
+                player_id = message_parts[1]
+                x_position, y_position = message_parts[2], message_parts[3]
+                x_rotation, y_rotation, z_rotation = message_parts[4], message_parts[5], message_parts[6]
+                if player_id != self.player_id:
+                    # Update the position and rotation of the players
+                    if player_id not in self.players:
+                        self.players[player_id] = [None, x_position, y_position, x_rotation, y_rotation, z_rotation]
+                    else:
+                        self.update_position(player_id, x_position, y_position)
+                        self.update_rotation(player_id, x_rotation, y_rotation, z_rotation)
+                else:
+                    # TODO: Update position of the robot by directly changing the position, should also make it so that it is facing the correct direction
+                    pass
+            case "BALL":
+                x_position, y_position, z_position = message_parts[1], message_parts[2], message_parts[3]
+                self.update_ball_position(x_position, y_position, z_position)
             case "ACK":
                 print("Acknowledgement.")
             case "MOVE":
@@ -488,9 +507,9 @@ class SoccerRobot:
             case "ADD":
                 team = message_parts[1]
                 id = message_parts[2]
-                self.players[id] = team
+                self.player_team[id] = team
                 print(f"📢 New teammate: {id}")
-            case "SETUP":
+            case "INFO":
                 self.team_number = message_parts[1]
                 self.player_id = message_parts[2]
                 print(
@@ -501,9 +520,9 @@ class SoccerRobot:
                 print("❓ Unknown message type")
 
     def move_based_on_role(self, ball_position):
-        """Moves the robot based on its role and corrects sidestepping issues."""
+        """Moves the robot based on its role and corrects sidestepping issues"""
         current_position = self.robot.get_position()
-        x_current, y_current = current_position[0], current_position[2]
+        x_current, y_current = current_position[0], current_position[1]
 
         # Ensure the robot is standing up
         if self.robot.has_fallen():
@@ -529,22 +548,34 @@ class SoccerRobot:
             defensive_position = [ball_position[0] - 0.5, ball_position[1]]
             self.robot.move_to_position(defensive_position)
 
+    def update_position(self, player, x, y):
+        """Update the position of the player"""
+        self.players[player][1] = x
+        self.players[player][2] = y
+
+    def update_rotation(self, player, x, y, z):
+        """Update the rotation of the player"""
+        self.players[player][3] = x
+        self.players[player][4] = y
+        self.players[player][5] = z
+
+    def update_ball_position(self, x, y, z):
+        """Update the position of the ball"""
+        self.ball_position[0] = x
+        self.ball_position[1] = y
+        self.ball_position[2] = z
 
 host = "127.0.0.1"
 port = 5555
 
 time.sleep(0.5)  # Wait for the game server to be up
-robot = SoccerRobot()
-client_thread = threading.Thread(target=robot.connect_to_server)
+
+soccer_robot = SoccerRobot()
+timeStep = soccer_robot.robot.timeStep
+
+client_thread = threading.Thread(target=soccer_robot.connect_to_server)
 client_thread.start()
 
-robot = Robot()
-timestep = int(robot.getBasicTimeStep())
-
 # Webots main loop
-while robot.step(timestep) != 1:
+while soccer_robot.robot.step(timeStep) != -1:
     pass
-
-# Create the Robot instance and run main loop
-robot = Nao()
-robot.run()
