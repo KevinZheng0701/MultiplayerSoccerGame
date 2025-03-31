@@ -1,18 +1,18 @@
 from controller import Robot, Motion
-import socket
-import threading
-import time
 import math
+import time
 from collections import deque
 
 class Nao(Robot):
     PHALANX_MAX = 8
 
     def __init__(self):
-        Robot.__init__(self)
+        super().__init__()
         self.currentlyPlaying = False
         self.load_motion_files()
         self.find_and_enable_devices()
+        self.action_queue = deque() # Priority queue for handling actions
+        self.state = None
 
     def load_motion_files(self):
         """Load motion files for the robot"""
@@ -34,7 +34,7 @@ class Nao(Robot):
     def start_motion(self, motion):
         """Starts a robot motion"""
         # Interrupt current motion
-        if self.currentlyPlaying and self.currentlyPlaying != motion:
+        if self.currentlyPlaying:
             self.currentlyPlaying.stop()
         # Start new motion
         motion.play()
@@ -314,262 +314,6 @@ class Nao(Robot):
         if abs(pitch_angle) > threshold:  # Robot has fallen forward or backward
             return True
         return False
-    
-    def is_standup_motion_in_action(self):
-        """Checks if the robot is in process of standing up"""
-        if self.currentlyPlaying == self.standup and not self.currentlyPlaying.isOver():
-            return True
-        return False
-
-    def move_to_position(self, position, step_size = 0.5):
-        """Move the robot to a xyz position"""
-        # TODO: Use a target position to move the robot, so movement is concurrent and doesn't block the thread execution
-        x_target, y_target = position
-        current_position = self.get_position()
-        x_current, y_current = current_position[0], current_position[2]
-
-        print(f"🚶 Moving from ({x_current}, {y_current}) → ({x_target}, {y_target})")
-        while (x_current - x_target) ** 2 + (y_current - y_target) ** 2 > 0.1:
-            dx = x_target - x_current
-            dy = y_target - y_current
-
-            # Normalize movement direction
-            move_x = step_size if dx > 0 else -step_size if dx < 0 else 0
-            move_y = step_size if dy > 0 else -step_size if dy < 0 else 0
-
-            # Move in the correct direction
-            if move_x > 0:
-                self.start_motion(self.forwards)
-            elif move_x < 0:
-                self.start_motion(self.backwards)
-
-            if move_y > 0:
-                self.start_motion(self.sideStepRight)
-            elif move_y < 0:
-                self.start_motion(self.sideStepLeft)
-
-            # Wait for movement to complete
-            while self.currentlyPlaying and not self.currentlyPlaying.isOver():
-                self.step(self.timeStep)
-
-            # Update current position
-            self.step(self.timeStep * 5)
-            current_position = self.gps.getValues()
-            x_current, y_current = current_position[0], current_position[2]
-
-        print(f"✅ Reached target position: ({x_target}, {y_target})")
-
-    def kick_ball(self):
-        if hasattr(self, "kick_motion"):
-            self.kick_motion.play()
-            print("⚽ Kicking the ball!")
-            self.sock.sendall(
-                f"KICK|{self.client_id}\n".encode("utf-8")
-            )  # ✅ Notify server
-        else:
-            print("⚠️ Kick motion not loaded.")
-
-    def run(self):
-        print("🤖 Robot is ready and waiting for server commands.")
-        while self.step(self.timeStep) != -1:
-            pass  # The robot will now respond only to MOVE and KICK commands.
-
-    def is_in_goal_area(self, position):
-        goal_area_x = [-0.5, 0.5]  # Define the goal area (x-axis)
-        goal_area_y = [-0.5, 0.5]  # Define the goal area (y-axis)
-        return (
-            goal_area_x[0] <= position[0] <= goal_area_x[1]
-            and goal_area_y[0] <= position[1] <= goal_area_y[1]
-        )
-
-    def move_as_goalie(self, ball_position):
-        if self.has_fallen():
-            print("⚠️ Goalie has fallen! Standing up.")
-            self.start_motion(self.standup)
-            while self.currentlyPlaying and not self.currentlyPlaying.isOver():
-                self.step(self.timeStep)
-            print("✅ Goalie has recovered!")
-
-        goal_x = -4.5  # Goalie's x-position should remain near the goal line
-        goal_area_y = [-0.5, 0.5]  # Goalkeeper's allowed movement range
-
-        # Get current position
-        current_position = self.gps.getValues()
-        x_current, y_current = current_position[0], current_position[2]
-
-        # Limit movement: Move only side-to-side within the goal area
-        target_x = goal_x  # Always keep the goalie near the goal
-        target_y = max(goal_area_y[0], min(goal_area_y[1], ball_position[1]))
-
-        # Move with smaller steps to avoid falling
-        self.move_to_position([target_x, target_y], step_size=0.1)
-
-    def move_as_striker(self, ball_position):
-        self.move_to_position(ball_position)  # Move toward the ball
-
-        # If close to the ball, attempt to kick
-        current_position = self.gps.getValues()
-        x_current, y_current = current_position[0], current_position[2]
-        if (
-            abs(x_current - ball_position[0]) < 0.2
-            and abs(y_current - ball_position[1]) < 0.2
-        ):
-            self.kick_ball()
-
-    def move_as_defender(self, ball_position):
-        # Move toward the ball if it is in the defensive half
-        if ball_position[0] < 0:  # Example: defensive half is x < 0
-            self.move_to_position(ball_position)
-        else:
-            # Stay in a defensive position
-            self.move_to_position([-1.0, 0])  # Example: stay at x = -1.0, y = 0
-
-class SoccerRobot:
-    def __init__(self):
-        self.player_team = {}
-        self.ball_position = [0, 0, 0]
-        self.player_states = {}  # Store player positions and role status
-        self.team_number = 0
-        self.player_id = 0
-        self.role = None
-        self.sock = None
-        self.robot = Nao()
-        self.action_queue = deque() # Priority queue for handling actions
-        self.target_positon = [0, 0] # The position the robot is heading towards
-        self.state = None
-        self.paused = True
-
-    def connect_to_server(self, host, port):
-        """Establishes a connection to the game server and sends its GPS position"""
-        print("🔄 Attempting to connect to server...")
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            self.sock.connect((host, port))
-            print("✅ Successfully connected to server.")
-            client_thread = threading.Thread(target=self.listen_for_server)
-            client_thread.start()
-        except Exception as error:
-            print(f"⚠️ Connection to server failed: {error}")
-
-    def listen_for_server(self):
-        """Listen to messages from the server"""
-        try:
-            buffer = ""  # Buffer to store the message
-            while True:
-                data = self.sock.recv(1024)
-                if not data:
-                    print("⚠️ Disconnected from server.")
-                    break
-                buffer += data.decode("utf-8")
-                while "\n" in buffer:
-                    message, buffer = buffer.split("\n", 1)
-                    self.handle_message(message)
-        except Exception as error:
-            print(f"⚠️ Communication error: {error}")
-        finally:
-            print(f"Client {self.player_id} closing connection with server.")
-            self.sock.close()
-
-    def handle_message(self, message):
-        """Handles messages from the server"""
-        message_parts = message.split("|")
-        message_type = message_parts[0]
-        match message_type:
-            case "POS":
-                player_id = message_parts[1]
-                x_position, y_position = message_parts[2], message_parts[3]
-                x_rotation, y_rotation, z_rotation, angle = message_parts[4], message_parts[5], message_parts[6], message_parts[7]
-                if player_id != self.player_id:
-                    # Update the position and rotation of the players
-                    if player_id not in self.player_states:
-                        self.player_states[player_id] = [None, [x_position, y_position], [x_rotation, y_rotation, z_rotation, angle]]
-                    else:
-                        self.update_position(player_id, x_position, y_position)
-                        self.update_rotation(player_id, x_rotation, y_rotation, z_rotation, angle)
-                else:
-                    current_position = self.robot.get_position()
-                    print(current_position)
-            case "BALL":
-                x_position, y_position, z_position = message_parts[1], message_parts[2], message_parts[3]
-                self.update_ball_position(x_position, y_position, z_position)
-            case "ACK":
-                print("Acknowledgement.")
-            case "MOVE":
-                print("Moving.")
-            case "GOAL":
-                print("Scored a goal.")
-            case "KICK":
-                print("Ball kick.")
-            case "GET":
-                print("Requesting information.")
-            case "ROLE":
-                self.role = message_parts[1]
-                print(f"📢 Assigned Role: {self.role}")
-            case "ADD":
-                team = message_parts[1]
-                id = message_parts[2]
-                self.player_team[id] = team
-                print(f"📢 New teammate: {id}")
-            case "START":
-                self.paused = False
-            case "INFO":
-                self.team_number = message_parts[1]
-                self.player_id = message_parts[2]
-                print(
-                    f"🆔 Assigned to team {self.team_number} with Player ID: {self.player_id}"
-                )
-            case _:
-                print(message)
-                print("❓ Unknown message type")
-
-    def move_based_on_role(self, ball_position):
-        """Moves the robot based on its role and corrects sidestepping issues"""
-        current_position = self.robot.get_position()
-        x_current, y_current = current_position[0], current_position[1]
-        
-        # Ensure the robot is standing up
-        if self.robot.has_fallen():
-            print("⚠️ Robot has fallen! Attempting to stand up.")
-            self.robot.play_standup_motion()
-            print("✅ Robot has recovered!")
-
-        if self.role == "Striker":
-            print(f"⚽ Striker moving towards ball at {ball_position}")
-            self.robot.move_to_position(ball_position)  # Move to ball's x, y position
-
-            # If close to ball, attempt a kick
-            if (x_current - ball_position[0]) ** 2 + (
-                y_current - ball_position[1]
-            ) ** 2 < 0.25:
-                self.robot.kick_ball()
-
-        elif self.role == "Goalie":
-            print(f"🥅 Goalie adjusting to ball position {ball_position}")
-            self.robot.move_as_goalie(ball_position)
-
-        elif self.role == "Defender":
-            defensive_position = [ball_position[0] - 0.5, ball_position[1]]
-            self.robot.move_to_position(defensive_position)
-
-    def determine_action(self):
-        """Determine what to do based on role and current game state"""
-        # If the robot has fallen then ensure it is getting up first
-        if self.robot.has_fallen():
-            self.robot.play_standup_motion()
-            return
-        elif self.robot.is_standup_motion_in_action():
-            return
-        match self.role:
-            case "Goalie":
-                pass
-            case "Striker":
-                pass
-            case "Midfielder":
-                pass
-            case "Defender":
-                pass
-            case _:
-                pass
 
     '''def process_action(self):
         """Process the actions in the queue"""
@@ -586,8 +330,7 @@ class SoccerRobot:
                 self.determine_action()'''
 
     def move_to_position(self, x_position, y_position, threshold = 0.25):
-        """Moves the robot towards the target position"""
-        position = self.robot.get_position()
+        position = self.get_position()
         x_current, y_current = position[0], position[1]
         # If the robot reached the target position then stop moving
         distance = math.sqrt((x_position - x_current) ** 2 + (y_position - y_current) ** 2)
@@ -601,14 +344,13 @@ class SoccerRobot:
             self.state = "Moving"
             # Take small steps when it is close else large steps
             if distance < threshold * 2: 
-                self.robot.start_motion(self.robot.smallForwards)
+                self.start_motion(self.smallForwards)
             else: 
-                self.robot.start_motion(self.robot.largeForwards)
+                self.start_motion(self.largeForwards)
 
     def turn_to_direction(self, direction):
-        """Turns the robot to the correct direction"""
         # Find the angle to turn to within [-pi, pi]
-        current_rotation = self.robot.get_rotation()
+        current_rotation = self.get_rotation()
         current_angle = current_rotation[2]
         target_angle = math.atan2(direction[1], direction[0])
         angle_difference = target_angle - current_angle
@@ -619,49 +361,45 @@ class SoccerRobot:
             print("Done turning.")
             return True
         self.state = "Turning"
-        self.robot.start_motion(self.robot.turnLeft60 if angle_difference > 0 else self.robot.turnRight60)
+        self.start_motion(self.turnLeft60 if angle_difference > 0 else self.turnRight60)
 
-    def set_target_position(self, target):
-        """Set a target position"""
-        self.target_positon = target
+    def turn(self, direction, angle):
+        """Turn the robot in the specified direction using incremented motion steps"""
+        '''
+        if angle < math.radians(20):
+            return  # No turning needed
+        
+        turns = []
+    
+        if angle >= math.radians(170):
+            turns.append(self.turn180)
+            angle -= math.radians(180)
+        while angle >= math.radians(50):
+            turns.append(self.turnLeft60 if direction == "left" else self.turnRight60)
+            angle -= math.radians(60)
+        while angle >= math.radians(20):
+            turns.append(self.turnLeft40 if direction == "left" else self.turnRight40)
+            angle -= math.radians(40)
 
+        # Add the motions to the queue
+        self.action_queue.extend(turns)
+        self.process_action()
+        '''
+    
     def normalize_vector(self, vector):
         """Normalizes a vector"""
         norm = math.sqrt(sum(val ** 2 for val in vector))
         return [v / norm for v in vector] if norm != 0 else vector
 
-    def distance_to_ball(self):
-        """Calculates the Euclidean distance from the player to the ball"""
-        player_state = self.player_states[self.player_id]
-        x_position, y_position = player_state[2], player_state[3]
-        return math.sqrt((x_position - self.ball_position[0]) ** 2 + (y_position - self.ball_position[1]) ** 2)
-
-    def update_position(self, player, x, y):
-        """Update the position of the player"""
-        self.player_states[player][1] = [x, y]
-
-    def update_rotation(self, player, x, y, z, angle):
-        """Update the rotation of the player"""
-        self.player_states[player][2] = [x, y, z, angle]
-
-    def update_ball_position(self, x, y, z):
-        """Update the position of the ball"""
-        self.ball_position[0] = x
-        self.ball_position[1] = y
-        self.ball_position[2] = z
-
-host = "127.0.0.1"
-port = 5555
-
-time.sleep(0.5)  # Wait for the game server to be up
-
-soccer_robot = SoccerRobot()
-timeStep = soccer_robot.robot.timeStep
-
-client_thread = threading.Thread(target=soccer_robot.connect_to_server, args=((host, port)))
-client_thread.start()
-
-# Webots main loop
-while soccer_robot.robot.step(timeStep) != -1:
-    if not soccer_robot.paused:
-        soccer_robot.determine_action()
+robot = Nao()
+timeStep = int(robot.getBasicTimeStep())
+robot.step(timeStep)
+robot.step(timeStep)
+robot.step(timeStep)
+robot.step(timeStep)
+robot.step(timeStep)
+robot.step(timeStep)
+robot.move_to_position(0, -1, 0.25)
+while robot.step(timeStep) != 1:
+    if robot.state == "Turning" or robot.state == "Moving" and robot.currentlyPlaying.isOver():
+        robot.move_to_position(0, -1, 0.25)
