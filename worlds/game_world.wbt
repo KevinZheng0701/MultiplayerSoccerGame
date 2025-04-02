@@ -13,7 +13,7 @@ WorldInfo {
 }
 Viewpoint {
   orientation 0.29503438844400975 -0.0021468049605365062 -0.9554842232417711 3.155487924658899
-  position 9.058563022941641 0.08029779777113495 5.826986595186682
+  position 1.1230221397479216 -0.12034949400703478 1.7227752390130109
 }
 TexturedBackground {
 }
@@ -2578,7 +2578,8 @@ DEF Robot_1 Robot {
   controller "<none>"
 }
 DEF Robot Robot {
-  translation -1 0 0.334
+  translation -1 0 0.124
+  rotation 0 1 0 -1.5707953071795862
   children [
     DEF BODY_SLOT Group {
     }

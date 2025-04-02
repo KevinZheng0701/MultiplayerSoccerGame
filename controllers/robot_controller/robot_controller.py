@@ -23,7 +23,8 @@ class Nao(Robot):
         self.shoot = Motion("../../motions/Shoot.motion")
         self.sideStepLeft = Motion("../../motions/SideStepLeft.motion")
         self.sideStepRight = Motion("../../motions/SideStepRight.motion")
-        self.standup = Motion("../../motions/StandUpFromFront.motion")
+        self.standupFromFront = Motion("../../motions/StandUpFromFront.motion")
+        self.standupFromBack = Motion("../../motions/StandUpFromBack.motion")
         self.turnLeft40 = Motion("../../motions/TurnLeft40.motion")
         self.turnLeft60 = Motion("../../motions/TurnLeft60.motion")
         self.turnRight40 = Motion("../../motions/TurnRight40.motion")
@@ -42,7 +43,7 @@ class Nao(Robot):
 
     def play_standup_motion(self):
         """Play the standup motion"""
-        self.start_motion(self.standup)
+        self.start_motion(self.standupFromBack)
 
     def get_acceleration(self):
         """Get the current acceleration"""
@@ -436,6 +437,7 @@ class SoccerRobot:
         self.robot = Nao()
         self.action_queue = deque() # Priority queue for handling actions
         self.target_positon = [0, 0] # The position the robot is heading towards
+        self.target_rotation = [0, 0] # The rotation the robot is targeting
         self.state = None
         self.paused = True
 
@@ -570,65 +572,104 @@ class SoccerRobot:
                 pass
             case _:
                 pass
-
-    '''def process_action(self):
-        """Process the actions in the queue"""
-        # If there are actions in a queue then start playing
-        if not self.currentlyPlaying and self.action_queue:
-            self.start_motion(self.action_queue[0])
-        # If the current motion finishes then start next action if available
-        elif self.currentlyPlaying and self.currentlyPlaying.isOver():
-            self.action_queue.popleft()
-            self.currentlyPlaying = False
-            if self.action_queue:
-                self.start_motion(self.action_queue[0])
-            else:
-                self.determine_action()'''
-
-    def move_to_position(self, x_position, y_position, threshold = 0.25):
-        """Moves the robot towards the target position"""
-        position = self.robot.get_position()
-        x_current, y_current = position[0], position[1]
+        
+    def go_to(self, x_position, y_position, threshold = 0.25):
+        """Function to tell the robot to go a certain position"""
+        self.target_position = [x_position, y_position]
+        position = self.get_position()
         # If the robot reached the target position then stop moving
-        distance = math.sqrt((x_position - x_current) ** 2 + (y_position - y_current) ** 2)
+        distance = self.get_distance(position, self.target_position)
         if distance < threshold:
-            print(f'At position {x_current}, {y_current}.')
+            print(f'At position {x_position}, {y_position}.')
             self.state = None
             return
         # Turn before moving
+        x_current, y_current = position[0], position[1]
         direction = self.normalize_vector([x_position - x_current, y_position - y_current])
         if self.turn_to_direction(direction):
-            self.state = "Moving"
+            self.start_turn(direction)
+
+    def move_to_position(self, position, threshold = 0.2):
+        """Move the robot to the target position"""
+        curr_position = self.robot.get_position()
+        x_current, y_current = curr_position[0], curr_position[1]
+        # If the robot reached the target position then stop moving
+        distance = self.get_distance([x_current, y_current], position)
+
+        if distance < threshold:
+            print(f'At position {x_current}, {y_current}.')
+            self.stop_motion()
+            self.state = None
+            return
+        
+        if not self.currentlyPlaying or self.currentlyPlaying.isOver():
+            # Before moving again, ensure robot direction is correct
+            direction = self.normalize_vector([position[0] - x_current, position[1] - y_current])
+            if self.turn_to_direction(direction, 5):
+                self.start_turn(direction)
+                return
             # Take small steps when it is close else large steps
             if distance < threshold * 2: 
                 self.robot.start_motion(self.robot.smallForwards)
             else: 
                 self.robot.start_motion(self.robot.largeForwards)
 
-    def turn_to_direction(self, direction):
-        """Turns the robot to the correct direction"""
+    def turn_to_direction(self, direction, threshold = 1):
+        """Turn the robot towards the target direction"""
         # Find the angle to turn to within [-pi, pi]
-        current_rotation = self.robot.get_rotation()
-        current_angle = current_rotation[2]
+        current_angle = self.robot.get_rotation()[2]
         target_angle = math.atan2(direction[1], direction[0])
-        angle_difference = target_angle - current_angle
-        angle_difference = (angle_difference + math.pi) % (2 * math.pi) - math.pi
-        # Positive angle indicates a left turn and negative angle indicates a right turn
-        print(f"Current yaw: {math.degrees(current_angle):.2f}°, Target yaw: {math.degrees(target_angle):.2f}°, Yaw diff: {math.degrees(angle_difference):.2f}°")
-        if abs(angle_difference) < math.radians(1):
-            print("Done turning.")
-            return True
-        self.state = "Turning"
-        self.robot.start_motion(self.robot.turnLeft60 if angle_difference > 0 else self.robot.turnRight60)
+        angle_difference = self.calculate_angle_difference(current_angle, target_angle)
 
-    def set_target_position(self, target):
-        """Set a target position"""
-        self.target_positon = target
+        # Positive angle indicates a left turn and negative angle indicates a right turn
+        print(f"Current yaw: {math.degrees(current_angle):.2f}°, Target yaw: {math.degrees(target_angle):.2f}°, Yaw diff: {abs(math.degrees(angle_difference)):.2f}°")
+        if abs(angle_difference) < math.radians(threshold):
+            if self.state == "Turning":
+                self.stop_turn_and_start_moving()
+            return False # Return false for no turning needed
+        
+        # If the motion is not playing, then play it
+        if not self.currentlyPlaying or self.currentlyPlaying.isOver():
+            # Larger angle differences use larger steps
+            if abs(angle_difference) > 160:
+                self.robot.start_motion(self.robot.turn180)
+            else:
+                self.robot.start_motion(self.robot.turnLeft40 if angle_difference > 0 else self.robot.turnRight40)
+        return True
 
     def normalize_vector(self, vector):
         """Normalizes a vector"""
         norm = math.sqrt(sum(val ** 2 for val in vector))
         return [v / norm for v in vector] if norm != 0 else vector
+    
+    def get_distance(self, point_one, point_two):
+        """Returns the Euclidean distance between two points in xy-plane"""
+        return math.sqrt((point_two[0] - point_one[0]) ** 2 + (point_two[1] - point_one[1]) ** 2)
+    
+    def calculate_angle_difference(self, angle1, angle2):
+        """Returns the angular difference in radians between two angles"""
+        return (angle2 - angle1 + math.pi) % (2 * math.pi) - math.pi
+    
+    def stop_motion(self):
+        """Stops the currently playing motion and resets the motion state"""
+        if self.currentlyPlaying:
+            self.currentlyPlaying.stop()
+        self.currentlyPlaying = False
+
+    def stop_turn_and_start_moving(self):
+        """Stops the current turning motion and transitions the robot to the moving state"""
+        self.stop_motion()
+        self.state = "Moving"
+        self.robot.start_motion(self.robot.smallForwards)
+
+    def start_turn(self, direction):
+        """Starts and set up the turning"""
+        self.target_rotation = direction
+        self.state = "Turning"
+
+    def set_target_position(self, target):
+        """Set a target position"""
+        self.target_positon = target
 
     def distance_to_ball(self):
         """Calculates the Euclidean distance from the player to the ball"""
