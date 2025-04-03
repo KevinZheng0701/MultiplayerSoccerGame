@@ -46,6 +46,7 @@ class Nao(Robot):
     def play_standup_motion(self):
         """Play the standup motion"""
         self.start_motion(self.standupFromBack)
+        robot.state = "Standing"
 
     def get_acceleration(self):
         """Get the current acceleration"""
@@ -338,12 +339,16 @@ class Nao(Robot):
         #print(f"Robot is standing. Total force: {total_force:.2f}N")
         return False
 
-
     def is_standup_motion_in_action(self):
         """Checks if the robot is in process of standing up"""
         if self.currentlyPlaying == self.standupFromFront or self.currentlyPlaying == self.standupFromBack and not self.currentlyPlaying.isOver():
             return True
         return False
+    
+    def play_kick_ball(self):
+        """Play the kick motion"""
+        self.start_motion(self.shoot)
+        self.state = "Kicking"
 
     '''def process_action(self):
         """Process the actions in the queue"""
@@ -359,12 +364,13 @@ class Nao(Robot):
             else:
                 self.determine_action()'''
 
-    def go_to(self, x_position, y_position, threshold = 0.25):
+    def go_to(self, x_position, y_position, threshold = 0.1):
         """Function to tell the robot to go a certain position"""
         self.target_position = [x_position, y_position]
         position = self.get_position()
         # If the robot reached the target position then stop moving
         distance = self.get_distance(position, self.target_position)
+        print(distance)
         if distance < threshold:
             print(f'At position {x_position}, {y_position}.')
             self.state = None
@@ -374,6 +380,8 @@ class Nao(Robot):
         direction = self.normalize_vector([x_position - x_current, y_position - y_current])
         if self.turn_to_direction(direction):
             self.start_turn(direction)
+        else:
+            self.move_to_position(self.target_position)
         
     def move_to_position(self, position, threshold = 0.2):
         """Move the robot to the target position"""
@@ -395,7 +403,7 @@ class Nao(Robot):
                 self.start_turn(direction)
                 return
             # Take small steps when it is close else large steps
-            if distance < threshold * 2: 
+            if distance < threshold * 4:
                 self.start_motion(self.smallForwards)
             else: 
                 self.start_motion(self.largeForwards)
@@ -446,13 +454,16 @@ class Nao(Robot):
         """Stops the current turning motion and transitions the robot to the moving state"""
         self.stop_motion()
         self.state = "Moving"
-        self.start_motion(self.smallForwards)
 
     def start_turn(self, direction):
         """Starts and set up the turning"""
         self.target_rotation = direction
         self.state = "Turning"
 
+    def distance_to_ball(self):
+        """Calculates the Euclidean distance from the player to the ball"""
+        position = self.get_position()
+        return self.get_distance(position, [0,0])
 
 robot = Nao()
 timeStep = int(robot.getBasicTimeStep())
@@ -460,18 +471,19 @@ robot.step(timeStep)
 robot.step(timeStep)
 robot.step(timeStep)
 robot.step(timeStep)
-robot.step(timeStep)
-robot.step(timeStep)
 robot.play_standup_motion()
-#robot.go_to(0, -1, 0.1)
 while robot.step(timeStep) != 1:
-    if robot.has_fallen():
-        #robot.play_standup_motion()
-        robot.state = "Standing"
-    elif robot.is_standup_motion_in_action():
+    pass
+    if robot.state == "Standing" and robot.is_standup_motion_in_action():
         pass
-    if robot.state == "Moving":
+    # When certain motions are played, it is possible for the foot sensors to be under the threshold so only when no motion are in play then check if a robot has fallen
+    if robot.has_fallen():
+        robot.play_standup_motion()
+    elif robot.state == "Moving":
         robot.move_to_position(robot.target_position)
     elif robot.state == "Turning":
         robot.turn_to_direction(robot.target_rotation)
-    pass
+    elif robot.state == "Kicking":
+        # If the robot is kicking then ensure the motion goes through
+        if robot.currentlyPlaying == robot.shoot and robot.currentlyPlaying.isOver():
+            robot.state = None

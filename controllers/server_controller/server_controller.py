@@ -7,7 +7,7 @@ import math
 
 GOALIE_X_POSITION = 3.5 # The starting x position of the goalie robot
 ROBOT_X_POSITION = 2.5 # The starting x position of the robots
-ROBOT_Z_POSITION = 0.334 # The starting z position of the robots represents the height
+ROBOT_Z_POSITION = 0.333 # The starting z position of the robots represents the height
 
 class Team:
     def __init__(self, team_number = 0, capacity = 0):
@@ -224,14 +224,14 @@ class GameServer(Supervisor):
         player_state = self.player_states[player_id]
         robot = self.players[player_id]
 
-        # Update the position
-        translation_field = robot.getField("translation")
-        translation_field.setSFVec3f([player_state[2][0], player_state[2][1], ROBOT_Z_POSITION])
-        
         # Update the rotation
         rotation_field = robot.getField("rotation")
         rotation_field.setSFRotation(player_state[3])
 
+        # Update the position
+        translation_field = robot.getField("translation")
+        translation_field.setSFVec3f([player_state[2][0], player_state[2][1], ROBOT_Z_POSITION])
+        
     def start_game(self):
         """Sends a start message to the players"""
         self.broadcast(f'START\n')
@@ -284,8 +284,8 @@ host = "127.0.0.1"
 port = 5555
 
 # Start the server in a separate thread
-game_server = GameServer(6)
-server_thread = threading.Thread(target=game_server.start_server, args=((host, port)), daemon=True)
+game_server = GameServer(2)
+server_thread = threading.Thread(target=game_server.start_server, args=(host, port,), daemon=True)
 server_thread.start()
 
 timestep = int(game_server.getBasicTimeStep())
