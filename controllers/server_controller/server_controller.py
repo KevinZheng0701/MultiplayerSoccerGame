@@ -63,7 +63,9 @@ class GameServer(Supervisor):
         self.team2 = Team(2, players_limit // 2)
         self.player_states = {}  # Store player game stats
         self.players = {} # Store the reference to the robots
-        self.ball = self.getFromDef("BALL") # Get the soccer ball in the world 
+        self.ball = self.getFromDef("BALL") # Get the soccer ball in the world
+        self.last_ball_position = [0, 0, 0]
+        self.game_started = False
 
     def start_server(self, host, port):
         """Starts the server and wait for connections"""
@@ -115,12 +117,11 @@ class GameServer(Supervisor):
         match message_type:
             case "POS":
                 # Update the position of the client and broadcast it to every other clients
-                x_position, y_position = message_parts[2], message_parts[3]
-                x_rotation, y_rotation, z_rotation = message_parts[4], message_parts[5], message_parts[6]
+                x_position, y_position = float(message_parts[2]), float(message_parts[3])
+                angle = float(message_parts[4])
                 self.update_position(sender, x_position, y_position)
-                self.update_rotation(sender, x_rotation, y_rotation, z_rotation)
-                message = f'POS|{sender}|{x_position}|{y_position}|{x_rotation}|{y_rotation}|{z_rotation}\n'
-                self.broadcast(message)
+                self.update_rotation(sender, angle)
+                self.broadcast(message + "\n", sender)
             case "ACK":
                 print("Acknowledgement.")
             case "MOVE":
@@ -186,44 +187,44 @@ class GameServer(Supervisor):
         for player, details in self.player_states.items():
             role = details[0]
             x_position, y_position = details[2]
-            x_rotation, y_rotation, z_rotation, angle = details[3]
+            angle = details[3]
             connection = self.clients[player]
             connection.sendall(f'ROLE|{role}\n'.encode('utf-8'))
-            message = f'POS|{player}|{x_position}|{y_position}|{x_rotation}|{y_rotation}|{z_rotation}|{angle}\n'
-            self.broadcast(message)
+            message = f'POS|{player}|{x_position}|{y_position}|{angle}\n'
+            self.broadcast(message, player)
         # Send ball position to clients
-        self.send_ball_position()
+        self.send_ball_position(True)
 
     def assign_initial_team_states(self, team):
         """Assigns starting states to players in a team"""
         players = team.get_players()
         team_number = team.get_team_number()
-        x_position, z_rotation, angle = self.get_initial_x_position_and_rotation(team_number)
+        x_position, angle = self.get_initial_x_position_and_rotation(team_number)
         y_position = self.calculate_player_y_position(0)
 
         # In the order of role, current action, xy coordinate, rotation, etc
-        self.player_states[players[0]] = ["None", None, [x_position, y_position], [0, 0, z_rotation, angle]]
+        self.player_states[players[0]] = ["None", None, [x_position, y_position], angle]
         self.apply_player_state_in_simulation(players[0])
 
         if len(players) >= 2:
             goalie_x_position = -GOALIE_X_POSITION if team_number == 1 else GOALIE_X_POSITION
-            self.player_states[players[1]] = ["Goalie",  None, [goalie_x_position, y_position], [0, 0, z_rotation, angle]]
+            self.player_states[players[1]] = ["Goalie",  None, [goalie_x_position, y_position], angle]
             self.apply_player_state_in_simulation(players[1])
             
             for i in range(2, len(players)):
                 y_position = self.calculate_player_y_position(i)
-                self.player_states[players[i]] = ["Midfielder", None, [x_position, y_position], [0, 0, z_rotation, angle]]
+                self.player_states[players[i]] = ["Midfielder", None, [x_position, y_position], angle]
                 self.apply_player_state_in_simulation(players[i])
 
     def get_initial_x_position_and_rotation(self, team_number):
-        """Returns the starting x position and rotation (z_axis, angle) of the player based on team"""
+        """Returns the starting x position and rotation angle of the player based on team"""
         x = ROBOT_X_POSITION
         angle = 0
         if team_number == 1:
             x *= -1
         else:
             angle = math.pi
-        return (x, 1, angle)
+        return (x, angle)
 
     def calculate_player_y_position(self, player_index):
         """Finds the y position based on the index of the player"""
@@ -237,7 +238,7 @@ class GameServer(Supervisor):
 
         # Update the rotation
         rotation_field = robot.getField("rotation")
-        rotation_field.setSFRotation(player_state[3])
+        rotation_field.setSFRotation([0, 0, 1, player_state[3]])
 
         # Update the position
         translation_field = robot.getField("translation")
@@ -245,7 +246,8 @@ class GameServer(Supervisor):
         
     def start_game(self):
         """Sends a start message to the players"""
-        self.broadcast(f'START\n')
+        self.broadcast(f'START|1\n')
+        self.game_started = True
 
     def is_player_near_ball(self, player_id, threshold = 0.5):
         """Checks if the player is close enough to the ball"""
@@ -256,21 +258,28 @@ class GameServer(Supervisor):
         """Calculates the Euclidean distance from a player to the ball"""
         player_state = self.player_states[player_id]
         x_position, y_position = player_state[2], player_state[3]
-        ball_x, ball_y = self.ball.getPosition()
-        return math.sqrt((x_position - ball_x) ** 2 + (y_position - ball_y) ** 2)
+        ball_position = self.ball.getPosition()
+        return self.get_distance([x_position, y_position], ball_position)
 
-    def send_ball_position(self):
+    def send_ball_position(self, force = False):
         """Sends the current ball position to the clients"""
         ball_position = self.ball.getPosition()
-        self.broadcast(f'BALL|{ball_position[0]}|{ball_position[1]}|{ball_position[2]}\n')
+        # If there is substanal change in the ball position or a force send
+        if force or self.get_distance(ball_position, self.last_ball_position) > 0.25:
+            self.last_ball_position = ball_position
+            self.broadcast(f'BALL|{ball_position[0]}|{ball_position[1]}|{ball_position[2]}\n')
+
+    def get_distance(self, point_one, point_two):
+        """Returns the Euclidean distance between two points in xy-plane"""
+        return math.sqrt((point_two[0] - point_one[0]) ** 2 + (point_two[1] - point_one[1]) ** 2)
 
     def update_position(self, player_id, x, y):
         """Updates the position of the player"""
-        self.players[player_id][2] = [x, y]
+        self.player_states[player_id][2] = [x, y]
 
-    def update_rotation(self, player_id, x, y, z, angle):
+    def update_rotation(self, player_id, angle):
         """Updates the rotation of the player"""
-        self.players[player_id][3] = [x, y, z, angle]
+        self.player_states[player_id][3] = angle
 
     def remove_client(self, connection):
         """Removes disconnected clients"""
@@ -302,4 +311,5 @@ timestep = int(game_server.getBasicTimeStep())
 
 # Webots main loop
 while game_server.step(timestep) != 1:
-    pass
+    if game_server.game_started:
+        game_server.send_ball_position()

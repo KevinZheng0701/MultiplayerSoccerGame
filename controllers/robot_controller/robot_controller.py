@@ -331,8 +331,10 @@ class SoccerRobot(Nao):
         self.action_queue = deque() # Priority queue for handling actions
         self.target_position = [0, 0] # The position the robot is heading towards
         self.target_rotation = [0, 0] # The rotation the robot is targeting
-        self.setup_time = 1 # The delay before running the robot to ensure physics calculations are all done
+        self.setup_time = 0 # The delay before running the robot to ensure physics calculations are all done
         self.start_time = 0
+        self.last_position = [0, 0]
+        self.last_rotation = 0
         self.paused = True
 
     def connect_to_server(self, host, port):
@@ -341,9 +343,9 @@ class SoccerRobot(Nao):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             self.sock.connect((host, port))
-            print("✅ Successfully connected to server.")
             client_thread = threading.Thread(target=self.listen_for_server)
             client_thread.start()
+            print("✅ Successfully connected to server.")
         except Exception as error:
             print(f"⚠️ Connection to server failed: {error}")
 
@@ -375,11 +377,11 @@ class SoccerRobot(Nao):
             case "POS":
                 player_id = message_parts[1]
                 x_position, y_position = float(message_parts[2]), float(message_parts[3])
-                x_rotation, y_rotation, z_rotation, angle = float(message_parts[4]), float(message_parts[5]), float(message_parts[6]), float(message_parts[7])
+                angle = float(message_parts[4])
                 # Update the position and rotation of the players
                 if player_id != self.player_id:
                     self.update_position(player_id, x_position, y_position)
-                    self.update_rotation(player_id, x_rotation, y_rotation, z_rotation, angle)
+                    self.update_rotation(player_id, angle)
             case "BALL":
                 x_position, y_position, z_position = float(message_parts[1]), float(message_parts[2]), float(message_parts[3])
                 self.update_ball_position(x_position, y_position, z_position)
@@ -398,6 +400,7 @@ class SoccerRobot(Nao):
                 print(f'📢 Assigned Role: {self.role}')
             case "START":
                 self.paused = False
+                self.setup_time = float(message_parts[1])
             case "INFO":
                 team_number = message_parts[1]
                 player_id = message_parts[2]
@@ -441,11 +444,13 @@ class SoccerRobot(Nao):
             case "Defender":
                 pass
             case _:
+                # If the ball moved 
+                if self.get_distance(self.ball_position, self.target_position) > 0.5:
+                    self.go_to(self.ball_position[0], self.ball_position[1])
                 # Player with no role should just head towards the ball
                 if not self.state:
                     if self.get_distance(self.ball_position, self.get_position()) > 0.2:
                         self.go_to(self.ball_position[0], self.ball_position[1])
-                        print("Going to ball")
                     elif self.state != "Kicking":
                         self.play_kick_ball()
                   
@@ -491,6 +496,14 @@ class SoccerRobot(Nao):
         if self.currentlyPlaying == self.standupFromBack or self.currentlyPlaying == self.standupFromFront and not self.currentlyPlaying.isOver():
             return True
         return False
+
+    def send_player_state(self, force = False):
+        """Sends position and rotation changes to the server"""
+        position, angle = self.get_position(), self.get_rotation()[2]
+        if force or self.get_distance(position, self.last_position) > 0.25 or abs(self.calculate_angle_difference(angle, self.last_rotation)) > math.radians(5):
+            self.sock.sendall(f'POS|{self.player_id}|{position[0]:.3f}|{position[1]:.3f}|{angle:.3f}\n'.encode("utf-8"))
+            self.last_position = [position[0], position[1]]
+            self.last_rotation = angle
 
     def go_to(self, x_position, y_position, threshold = 0.2):
         """Function to tell the robot to go a certain position"""
@@ -592,9 +605,9 @@ class SoccerRobot(Nao):
         """Update the position of the player"""
         self.player_states[player][1] = [x, y]
 
-    def update_rotation(self, player, x, y, z, angle):
+    def update_rotation(self, player, angle):
         """Update the rotation of the player"""
-        self.player_states[player][2] = [x, y, z, angle]
+        self.player_states[player][2] = angle
 
     def update_ball_position(self, x, y, z):
         """Update the position of the ball"""
@@ -625,5 +638,4 @@ client_thread.start()
 while soccer_robot.step(timeStep) != -1:
     if not soccer_robot.paused and soccer_robot.is_setup_time_over():
         soccer_robot.determine_action()
-    else:
-        pass
+        soccer_robot.send_player_state()
