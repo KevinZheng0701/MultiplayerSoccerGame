@@ -2,7 +2,6 @@ from controller import Robot, Motion
 import socket
 import threading
 import math
-import time
 from collections import deque
 
 class Nao(Robot):
@@ -324,16 +323,17 @@ class SoccerRobot(Nao):
         self.player_team = {}
         self.ball_position = [0, 0, 0]
         self.player_states = {}  # Store player positions and role status
+        self.sock = None
         self.team_number = 0
         self.player_id = 0
-        self.sock = None
+        self.state = None
+        self.role = None
         self.action_queue = deque() # Priority queue for handling actions
         self.target_position = [0, 0] # The position the robot is heading towards
         self.target_rotation = [0, 0] # The rotation the robot is targeting
-        self.state = None
-        self.role = None
+        self.setup_time = 1 # The delay before running the robot to ensure physics calculations are all done
+        self.start_time = 0
         self.paused = True
-        self.startup_time = 3
 
     def connect_to_server(self, host, port):
         """Establishes a connection to the game server and sends its GPS position"""
@@ -368,24 +368,20 @@ class SoccerRobot(Nao):
 
     def handle_message(self, message):
         """Handles messages from the server"""
+        print(message)
         message_parts = message.split("|")
         message_type = message_parts[0]
         match message_type:
             case "POS":
                 player_id = message_parts[1]
-                x_position, y_position = message_parts[2], message_parts[3]
-                x_rotation, y_rotation, z_rotation, angle = message_parts[4], message_parts[5], message_parts[6], message_parts[7]
+                x_position, y_position = float(message_parts[2]), float(message_parts[3])
+                x_rotation, y_rotation, z_rotation, angle = float(message_parts[4]), float(message_parts[5]), float(message_parts[6]), float(message_parts[7])
+                # Update the position and rotation of the players
                 if player_id != self.player_id:
-                    # Update the position and rotation of the players
-                    if player_id not in self.player_states:
-                        self.player_states[player_id] = [None, [x_position, y_position], [x_rotation, y_rotation, z_rotation, angle]]
-                    else:
-                        self.update_position(player_id, x_position, y_position)
-                        self.update_rotation(player_id, x_rotation, y_rotation, z_rotation, angle)
-                else:
-                    pass
+                    self.update_position(player_id, x_position, y_position)
+                    self.update_rotation(player_id, x_rotation, y_rotation, z_rotation, angle)
             case "BALL":
-                x_position, y_position, z_position = message_parts[1], message_parts[2], message_parts[3]
+                x_position, y_position, z_position = float(message_parts[1]), float(message_parts[2]), float(message_parts[3])
                 self.update_ball_position(x_position, y_position, z_position)
             case "ACK":
                 print("Acknowledgement.")
@@ -399,20 +395,22 @@ class SoccerRobot(Nao):
                 print("Requesting information.")
             case "ROLE":
                 self.role = message_parts[1]
-                print(f"📢 Assigned Role: {self.role}")
-            case "ADD":
-                team = message_parts[1]
-                id = message_parts[2]
-                self.player_team[id] = team
-                print(f"📢 New teammate: {id}")
+                print(f'📢 Assigned Role: {self.role}')
             case "START":
                 self.paused = False
             case "INFO":
-                self.team_number = message_parts[1]
-                self.player_id = message_parts[2]
-                print(
-                    f"🆔 Assigned to team {self.team_number} with Player ID: {self.player_id}"
-                )
+                team_number = message_parts[1]
+                player_id = message_parts[2]
+                # Set player information
+                if not self.player_id:
+                    self.team_number = team_number
+                    self.player_id = player_id
+                    print(f'🆔 Assigned to team {self.team_number} with Player ID: {self.player_id}')
+                else:
+                    # Set up player default state
+                    self.player_states[player_id] = [None, [0, 0], [0, 0, 0, 0]]
+                    self.player_team[player_id] = team_number
+                    print(f'📢 New teammate: {player_id}') if team_number == self.team_number else print(f'📢 New opponent: {player_id}')
             case _:
                 print(message)
                 print("❓ Unknown message type")
@@ -423,12 +421,12 @@ class SoccerRobot(Nao):
         print(self.state, self.role)
         if self.state == "Standing" and self.is_standup_motion_in_action():
             pass
-        if self.state != "Kicking" and self.has_fallen():
+        if self.has_fallen():
             self.play_standup_motion()
         elif self.state == "Moving":
             self.move_to_position(self.target_position)
         elif self.state == "Turning":
-            self.turn_to_direction(self.target_rotation)
+            self.turn_to_direction(self.target_rotation, 2)
         elif self.state == "Kicking":
             # Reset kicking state after kick is done
             if self.currentlyPlaying == self.shoot and self.currentlyPlaying.isOver():
@@ -453,8 +451,15 @@ class SoccerRobot(Nao):
                   
     def has_fallen(self, force_threshold = 5):
         """Determines if the robot has fallen using foot pressure sensors"""
-        if self.startup_time > self.getTime():
+        """
+        Skips fall detection until the setup time has passed and the current motion is complete.
+        When robots are repositioned using the Supervisor, their foot sensors may temporarily 
+        report low values due to incomplete contact with the ground. This delay allows the 
+        physics engine to settle the robot and ensures foot sensors register proper ground contact.
+        """
+        if not self.is_motion_over() or not self.is_setup_time_over(2):
             return False
+        
         fsv = []  # Force sensor values
         fsv.append(self.fsr[0].getValues())  # Left foot
         fsv.append(self.fsr[1].getValues())  # Right foot
@@ -500,7 +505,7 @@ class SoccerRobot(Nao):
         # Turn before moving
         x_current, y_current = position[0], position[1]
         direction = self.normalize_vector([x_position - x_current, y_position - y_current])
-        if self.turn_to_direction(direction):
+        if self.turn_to_direction(direction, 2):
             self.start_turn(direction)
         else:
             self.state = "Moving"
@@ -519,10 +524,10 @@ class SoccerRobot(Nao):
             self.state = None
             return True
         
-        if not self.currentlyPlaying or self.currentlyPlaying.isOver():
+        if self.is_motion_over():
             # Before moving again, ensure robot direction is correct
             direction = self.normalize_vector([position[0] - x_current, position[1] - y_current])
-            if self.turn_to_direction(direction, 5):
+            if self.turn_to_direction(direction):
                 self.start_turn(direction)
                 return False
             # Take small steps when it is close else large steps
@@ -532,7 +537,7 @@ class SoccerRobot(Nao):
                 self.start_motion(self.largeForwards)
         return False
 
-    def turn_to_direction(self, direction, threshold = 2.5):
+    def turn_to_direction(self, direction, threshold = 5):
         """Turn the robot towards the target direction"""
         # Find the angle to turn to within [-pi, pi]
         current_angle = self.get_rotation()[2]
@@ -547,12 +552,8 @@ class SoccerRobot(Nao):
             return False # Return false for no turning needed
         
         # If the motion is not playing, then play it
-        if not self.currentlyPlaying or self.currentlyPlaying.isOver():
-            # Larger angle differences use larger steps
-            if abs(angle_difference) > 160:
-                self.start_motion(self.turn180)
-            else:
-                self.start_motion(self.turnLeft40 if angle_difference > 0 else self.turnRight40)
+        if self.is_motion_over():
+            self.start_motion(self.turnLeft40 if angle_difference > 0 else self.turnRight40)
         return True
 
     def normalize_vector(self, vector):
@@ -589,17 +590,25 @@ class SoccerRobot(Nao):
 
     def update_position(self, player, x, y):
         """Update the position of the player"""
-        self.player_states[player][1] = [float(x), float(y)]
+        self.player_states[player][1] = [x, y]
 
     def update_rotation(self, player, x, y, z, angle):
         """Update the rotation of the player"""
-        self.player_states[player][2] = [float(x), float(y), float(z), float(angle)]
+        self.player_states[player][2] = [x, y, z, angle]
 
     def update_ball_position(self, x, y, z):
         """Update the position of the ball"""
-        self.ball_position[0] = float(x)
-        self.ball_position[1] = float(y)
-        self.ball_position[2] = float(z)
+        self.ball_position[0] = x
+        self.ball_position[1] = y
+        self.ball_position[2] = z
+
+    def is_setup_time_over(self, multiplier = 1):
+        """Returns True if the setup time has passed"""
+        return self.getTime() >= self.start_time + self.setup_time * multiplier
+
+    def is_motion_over(self):
+        """Returns whether the current motion finish playing"""
+        return not self.currentlyPlaying or self.currentlyPlaying.isOver()
 
 host = "127.0.0.1"
 port = 5555
@@ -614,7 +623,7 @@ client_thread.start()
 
 # Webots main loop
 while soccer_robot.step(timeStep) != -1:
-    if not soccer_robot.paused:
+    if not soccer_robot.paused and soccer_robot.is_setup_time_over():
         soccer_robot.determine_action()
     else:
         pass

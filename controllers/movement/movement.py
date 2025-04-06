@@ -424,11 +424,7 @@ class Nao(Robot):
         
         # If the motion is not playing, then play it
         if not self.currentlyPlaying or self.currentlyPlaying.isOver():
-            # Larger angle differences use larger steps
-            if abs(angle_difference) > 160:
-                self.start_motion(self.turn180)
-            else:
-                self.start_motion(self.turnLeft40 if angle_difference > 0 else self.turnRight40)
+            self.start_motion(self.turnLeft40 if angle_difference > 0 else self.turnRight40)
         return True
 
     def normalize_vector(self, vector):
@@ -471,9 +467,8 @@ robot.step(timeStep)
 robot.step(timeStep)
 robot.step(timeStep)
 robot.step(timeStep)
-robot.play_standup_motion()
+robot.go_to(0, 0)
 while robot.step(timeStep) != 1:
-    pass
     if robot.state == "Standing" and robot.is_standup_motion_in_action():
         pass
     # When certain motions are played, it is possible for the foot sensors to be under the threshold so only when no motion are in play then check if a robot has fallen

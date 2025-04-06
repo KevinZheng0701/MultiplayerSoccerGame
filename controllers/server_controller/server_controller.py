@@ -42,7 +42,11 @@ class Team:
     def get_team_number(self):
         """Get the team number"""
         return self.team_number
-
+    
+    def has(self, player_id):
+        """Returns true if player is in the team else false"""
+        return player_id in self.players
+    
 class GameServer(Supervisor):
     def __init__(self, players_limit=6):
         if players_limit < 2:
@@ -145,7 +149,7 @@ class GameServer(Supervisor):
         with self.client_lock:
             self.clients[player_id] = connection
             self.players[player_id] = self.getFromDef("Robot_" + str(len(self.clients))) # Add the robot reference
-        
+
         # Assign client a team
         if len(self.team1) <= len(self.team2):
             team_number = 1
@@ -154,9 +158,18 @@ class GameServer(Supervisor):
             team_number = 2
             self.team2.add_player(player_id)
 
-        # Send client information
-        message = f"INFO|{team_number}|{player_id}|\n"
-        connection.sendall(message.encode("utf-8"))
+        # Send previously connected robots the notice of newly connected client
+        self.broadcast(f'INFO|{team_number}|{player_id}\n')
+
+        # Send previously connected robots to the new client
+        team1 = self.team1.get_players()
+        team2 = self.team2.get_players()        
+        for id in team1:
+            if id != player_id:
+                connection.sendall(f'INFO|1|{id}\n'.encode("utf-8"))
+        for id in team2:
+            if id != player_id:
+                connection.sendall(f'INFO|2|{id}\n'.encode("utf-8"))
         print(f"📢 Clients connected: {len(self.clients)}")
         
         # If all clients joined, then start the game by first assigning initial roles
@@ -178,7 +191,6 @@ class GameServer(Supervisor):
             connection.sendall(f'ROLE|{role}\n'.encode('utf-8'))
             message = f'POS|{player}|{x_position}|{y_position}|{x_rotation}|{y_rotation}|{z_rotation}|{angle}\n'
             self.broadcast(message)
-
         # Send ball position to clients
         self.send_ball_position()
 
@@ -206,13 +218,12 @@ class GameServer(Supervisor):
     def get_initial_x_position_and_rotation(self, team_number):
         """Returns the starting x position and rotation (z_axis, angle) of the player based on team"""
         x = ROBOT_X_POSITION
-        z_rotation, angle = 1, 0
+        angle = 0
         if team_number == 1:
             x *= -1
         else:
-            z_rotation *= -1
             angle = math.pi
-        return (x, z_rotation, angle)
+        return (x, 1, angle)
 
     def calculate_player_y_position(self, player_index):
         """Finds the y position based on the index of the player"""
@@ -267,9 +278,8 @@ class GameServer(Supervisor):
             for player_id, conn in self.clients.items():
                 if conn == connection:
                     del self.clients[player_id]
-                    with self.team_lock:
-                        self.team1.discard(player_id)
-                        self.team2.discard(player_id)
+                    self.team1.remove_player(player_id)
+                    self.team2.remove_player(player_id)
                     print(f"❌ Removing player {player_id}")
                     break
         connection.close()
