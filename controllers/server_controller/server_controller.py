@@ -203,7 +203,7 @@ class GameServer(Supervisor):
         y_position = self.calculate_player_y_position(0)
 
         # In the order of role, current action, xy coordinate, rotation, etc
-        self.player_states[players[0]] = ["None", None, [x_position, y_position], angle]
+        self.player_states[players[0]] = ["Striker", None, [x_position, y_position], angle]
         self.apply_player_state_in_simulation(players[0])
 
         if len(players) >= 2:
