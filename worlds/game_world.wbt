@@ -7881,7 +7881,10 @@ DEF Robot_3 Robot {
       1.43116e-05 0.000155191 -2.70793e-05
     ]
   }
-  controller "<none>"
+  controller "robot_controller"
+  controllerArgs [
+    ""
+  ]
 }
 DEF Robot_4 Robot {
   translation 0.5 3 0.330589
@@ -10497,7 +10500,7 @@ DEF Robot_4 Robot {
       1.43116e-05 0.000155191 -2.70793e-05
     ]
   }
-  controller "<none>"
+  controller "robot_controller"
 }
 DEF Robot_5 Robot {
   translation 1.5 3 0.33059

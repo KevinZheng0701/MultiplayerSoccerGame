@@ -4,7 +4,7 @@ import threading
 import uuid
 import math
 
-GOALIE_X_POSITION = 3.5 # The starting x position of the goalie robot
+GOALIE_X_POSITION = 4.25  # The starting x position of the goalie robot
 ROBOT_X_POSITION = 2.5 # The starting x position of the robots
 ROBOT_Z_POSITION = 0.333 # The starting z position of the robots represents the height
 
@@ -51,8 +51,8 @@ class GameServer(Supervisor):
         if players_limit < 2:
             print("⚠️ Minimum player size is 2.")
             players_limit = 2
-        elif players_limit > 12:
-            print("⚠️ Minimum player size is 12.")
+        elif players_limit > 8:
+            print("⚠️ Minimum player size is 8.")
             players_limit = 12
         super().__init__() # Initialize as a supervisor so it has access to objects in the world
         self.players_limit = players_limit
@@ -202,7 +202,7 @@ class GameServer(Supervisor):
         y_position = self.calculate_player_y_position(0)
 
         # In the order of role, current action, xy coordinate, rotation, etc
-        self.player_states[players[0]] = ["None", None, [x_position, y_position], angle]
+        self.player_states[players[0]] = ["Striker", None, [x_position, y_position], angle]
         self.apply_player_state_in_simulation(players[0])
 
         if len(players) >= 2:
@@ -302,7 +302,7 @@ host = "127.0.0.1"
 port = 5555
 
 # Start the server in a separate thread
-game_server = GameServer(2)
+game_server = GameServer(4)
 server_thread = threading.Thread(target=game_server.start_server, args=(host, port,), daemon=True)
 server_thread.start()
 
