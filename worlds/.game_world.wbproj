@@ -20,3 +20,5 @@ renderingDevicePerspectives: NAO(5):CameraBottom;0;1;0;0
 renderingDevicePerspectives: NAO(5):CameraTop;0;1;0;0
 renderingDevicePerspectives: NAO(6):CameraBottom;0;1;0;0
 renderingDevicePerspectives: NAO(6):CameraTop;0;1;0;0
+renderingDevicePerspectives: NAO:CameraBottom;0;1;0;0
+renderingDevicePerspectives: NAO:CameraTop;0;1;0;0

@@ -2,7 +2,6 @@ from controller import Supervisor
 import socket
 import threading
 import uuid
-import time
 import math
 
 GOALIE_X_POSITION = 4.25  # The starting x position of the goalie robot
@@ -243,7 +242,7 @@ class GameServer(Supervisor):
         # Update the position
         translation_field = robot.getField("translation")
         translation_field.setSFVec3f([player_state[2][0], player_state[2][1], ROBOT_Z_POSITION])
-        
+
     def start_game(self):
         """Sends a start message to the players"""
         self.broadcast(f'START|1\n')
@@ -265,9 +264,9 @@ class GameServer(Supervisor):
         """Sends the current ball position to the clients"""
         ball_position = self.ball.getPosition()
         # If there is substanal change in the ball position or a force send
-        if force or self.get_distance(ball_position, self.last_ball_position) > 0.25:
+        if force or self.get_distance(ball_position, self.last_ball_position) > 0.1:
             self.last_ball_position = ball_position
-            self.broadcast(f'BALL|{ball_position[0]}|{ball_position[1]}|{ball_position[2]}\n')
+            self.broadcast(f'BALL|{ball_position[0]:.2f}|{ball_position[1]:.2f}|{ball_position[2]:.2f}\n')
 
     def get_distance(self, point_one, point_two):
         """Returns the Euclidean distance between two points in xy-plane"""

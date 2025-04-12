@@ -4,6 +4,7 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/samples/contests/robocup/protos/RobocupSoccerField.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/balls/protos/Ball.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/softbank/nao/protos/Nao.proto"
 
 WorldInfo {
   info [
@@ -12,17 +13,17 @@ WorldInfo {
   ]
 }
 Viewpoint {
-  orientation -0.21796330051649945 0.21572675324815352 0.95181614167914 1.6304713911003892
-  position 0.3932583870783569 -9.308931023829272 6.013814448295139
+  orientation -0.27952338858724923 -0.27638921366811403 0.9194975137544544 4.617338747707995
+  position -0.09080543848348079 8.550532571771916 6.105866407710434
 }
 TexturedBackground {
 }
 TexturedBackgroundLight {
 }
 DEF BALL Ball {
-  translation 0 0 0.07498430400000003
+  translation 0 0 0.1
   color 0 0 0
-  radius 0.075
+  radius 0.1
   mass 0.01
 }
 RobocupSoccerField {
@@ -691,7 +692,7 @@ DEF Robot_1 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation 1.0002851733849544e-16 1 2.0596334162463427e-16 0.9599999790562762
+                                      rotation 1.0002851731852514e-16 0.9999999999999999 2.0596334234052276e-16 0.9599999761675745
                                       children [
                                         USE PHALANX_TRANS
                                         DEF RPhalanx3 HingeJoint {
@@ -711,7 +712,7 @@ DEF Robot_1 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation -1.0888661605546289e-16 1 -4.539744899429546e-16 0.9599999959184242
+                                            rotation -1.0888661599497734e-16 1 -4.539744901852918e-16 0.959999995424306
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -775,7 +776,7 @@ DEF Robot_1 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation 1.3769178779318136e-16 1 -4.371874289317976e-16 0.9599999790564782
+                                      rotation 1.3769178880664842e-16 1 -4.371874299458399e-16 0.9599999761677447
                                       children [
                                         USE PHALANX_TRANS
                                         DEF RPhalanx6 HingeJoint {
@@ -795,7 +796,7 @@ DEF Robot_1 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation -2.1189881494845185e-16 1 -3.8832588281684815e-16 0.9599999959186084
+                                            rotation -2.1189881495307e-16 1 -3.8832588305346766e-16 0.959999995424522
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -856,7 +857,7 @@ DEF Robot_1 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation 1.8633905612913077e-16 -1 8.994275181772912e-17 0.9599999952816636
+                                      rotation 1.86339056276666e-16 -0.9999999999999999 8.994275181325727e-17 0.9599999946228278
                                       children [
                                         USE PHALANX_TRANS
                                       ]
@@ -1240,7 +1241,7 @@ DEF Robot_1 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -9.12739550306313e-16 1 -1.6157059346938063e-16 0.9599999784314315
+                                      rotation -9.12739552679361e-16 0.9999999999999999 -1.6157059529293896e-16 0.9599999754495389
                                       children [
                                         USE PHALANX_TRANS
                                         DEF LPhalanx3 HingeJoint {
@@ -1260,7 +1261,7 @@ DEF Robot_1 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 8.440366649311635e-17 1 -1.5045188391135944e-16 0.959999997367445
+                                            rotation 8.440366653377912e-17 1 -1.5045188393797406e-16 0.9599999971072661
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -1324,7 +1325,7 @@ DEF Robot_1 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -7.880909053293693e-16 1 -2.2530219988321233e-16 0.9599999784324926
+                                      rotation -7.8809090725032985e-16 1 -2.2530220170335504e-16 0.9599999754507443
                                       children [
                                         USE PHALANX_TRANS
                                         DEF LPhalanx6 HingeJoint {
@@ -1344,7 +1345,7 @@ DEF Robot_1 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation -2.909552302882156e-16 1 -5.047754198971632e-16 0.959999997361018
+                                            rotation -2.9095523029527746e-16 1 -5.047754200617127e-16 0.959999997099939
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -1405,7 +1406,7 @@ DEF Robot_1 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation 4.636748881497641e-16 -1 -4.436769089285255e-16 0.9599999951057842
+                                      rotation 4.636748883028454e-16 -1 -4.436769093792143e-16 0.9599999944207952
                                       children [
                                         USE PHALANX_TRANS
                                       ]
@@ -3307,7 +3308,7 @@ DEF Robot_2 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -1.2606326022532663e-16 0.9999999999999999 -7.07464871625652e-17 0.9599999801382751
+                                      rotation -1.2606326046254847e-16 1 -7.07464875251201e-17 0.9599999773702013
                                       children [
                                         USE PHALANX_TRANS
                                         DEF RPhalanx3 HingeJoint {
@@ -3327,7 +3328,7 @@ DEF Robot_2 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 5.79622978776378e-16 1 1.4427347691913065e-15 0.9599999953291783
+                                            rotation 5.796229786807692e-16 1 1.4427347701639527e-15 0.9599999947486436
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -3391,7 +3392,7 @@ DEF Robot_2 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation 9.590708107169786e-16 1 2.4137849742279134e-17 0.9599999801420983
+                                      rotation 9.590708132327627e-16 1 2.4137851133570085e-17 0.9599999773745582
                                       children [
                                         USE PHALANX_TRANS
                                         DEF RPhalanx6 HingeJoint {
@@ -3411,7 +3412,7 @@ DEF Robot_2 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation -4.1721254941966936e-16 0.9999999999999999 9.467824714452158e-16 0.9599999953293163
+                                            rotation -4.1721254992709526e-16 1 9.467824718519828e-16 0.959999994748796
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -3472,7 +3473,7 @@ DEF Robot_2 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -2.309635622950887e-16 -1 -1.6238788124435323e-16 0.9599999954752646
+                                      rotation -2.309635624883921e-16 -1 -1.6238788127017514e-16 0.9599999948373283
                                       children [
                                         USE PHALANX_TRANS
                                       ]
@@ -3856,7 +3857,7 @@ DEF Robot_2 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -3.445737269533926e-16 1 -5.676806139407987e-17 0.9599999796413964
+                                      rotation -3.4457372781400516e-16 1 -5.676806203924449e-17 0.9599999767968478
                                       children [
                                         USE PHALANX_TRANS
                                         DEF LPhalanx3 HingeJoint {
@@ -3876,7 +3877,7 @@ DEF Robot_2 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 2.2691042011518764e-16 1 7.841714837762944e-16 0.9599999963339333
+                                            rotation 2.26910420043182e-16 1 7.841714841345816e-16 0.9599999959204847
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -3940,7 +3941,7 @@ DEF Robot_2 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -6.766869395532949e-17 1 -4.18008076052746e-16 0.9599999796415647
+                                      rotation -6.766869354567682e-17 1 -4.1800807729095064e-16 0.9599999767970363
                                       children [
                                         USE PHALANX_TRANS
                                         DEF LPhalanx6 HingeJoint {
@@ -3960,7 +3961,7 @@ DEF Robot_2 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation -1.516115914249671e-16 1 7.771176354308299e-16 0.9599999963338952
+                                            rotation -1.516115916458278e-16 1 7.77117635708078e-16 0.9599999959204293
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -4021,7 +4022,7 @@ DEF Robot_2 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -5.401570432958101e-16 -1 -8.073519947257405e-16 0.9599999953350091
+                                      rotation -5.401570439041473e-16 -1 -8.073519950589833e-16 0.95999999467553
                                       children [
                                         USE PHALANX_TRANS
                                       ]
@@ -5884,7 +5885,7 @@ DEF Robot_3 Robot {
                               ]
                               endPoint Solid {
                                 translation 0.069 -0.013 -0.005
-                                rotation -4.200504060001192e-16 1 -6.276685416828507e-16 0.9599999795875118
+                                rotation -4.2005040629789053e-16 1 -6.276685443846186e-16 0.9599999762636686
                                 children [
                                   DEF HAND_SLOT Pose {
                                     rotation 0 -1 0 0.96
@@ -5923,7 +5924,7 @@ DEF Robot_3 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -1.267859091718423e-16 1 -9.793800765035115e-17 0.9599999810017877
+                                      rotation -1.2678590936457915e-16 0.9999999999999999 -9.793800806722165e-17 0.9599999783542119
                                       children [
                                         USE PHALANX_TRANS
                                         DEF RPhalanx3 HingeJoint {
@@ -5943,7 +5944,7 @@ DEF Robot_3 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 4.459926151290121e-16 1 1.0784565222947698e-15 0.9599999950568628
+                                            rotation 4.459926150606993e-16 0.9999999999999999 1.078456523070196e-15 0.9599999944408358
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -5987,7 +5988,7 @@ DEF Robot_3 Robot {
                               ]
                               endPoint Solid {
                                 translation 0.069 0.013 -0.005
-                                rotation 9.234425501054462e-18 1 -3.167537778905837e-16 0.9599999795861972
+                                rotation 9.23442605698829e-18 1 -3.1675377888645827e-16 0.9599999762621434
                                 children [
                                   USE PHALANX_TRANS
                                   DEF RPhalanx5 HingeJoint {
@@ -6007,7 +6008,7 @@ DEF Robot_3 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -1.6127755214211765e-16 1 -5.160479297861751e-16 0.9599999810047464
+                                      rotation -1.6127755186910728e-16 1 -5.160479313116472e-16 0.959999978357537
                                       children [
                                         USE PHALANX_TRANS
                                         DEF RPhalanx6 HingeJoint {
@@ -6027,7 +6028,7 @@ DEF Robot_3 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 9.466686763279939e-17 1 7.236373697674958e-16 0.9599999950557165
+                                            rotation 9.466686746586185e-17 0.9999999999999999 7.236373702249399e-16 0.9599999944394818
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -6088,7 +6089,7 @@ DEF Robot_3 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -2.533136724720521e-16 -1 -2.559405175927686e-16 0.9599999956247313
+                                      rotation -2.533136727011451e-16 -1 -2.5594051766629403e-16 0.9599999950076541
                                       children [
                                         USE PHALANX_TRANS
                                       ]
@@ -6433,7 +6434,7 @@ DEF Robot_3 Robot {
                               ]
                               endPoint Solid {
                                 translation 0.069 -0.013 -0.005
-                                rotation -3.1758336041870603e-16 1 -6.5181937464655096e-18 0.9599999800438019
+                                rotation -3.175833613999359e-16 1 -6.51819428317838e-18 0.9599999767920192
                                 children [
                                   DEF HAND_SLOT Pose {
                                     rotation 0 -1 0 0.96
@@ -6472,7 +6473,7 @@ DEF Robot_3 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation 1.0104824705005535e-15 0.9999999999999999 5.198696687814177e-16 0.9599999806172106
+                                      rotation 1.0104824724249824e-15 1 5.198696715020774e-16 0.9599999779088174
                                       children [
                                         USE PHALANX_TRANS
                                         DEF LPhalanx3 HingeJoint {
@@ -6492,7 +6493,7 @@ DEF Robot_3 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 1.67022144244924e-16 1 1.0685033082963268e-15 0.9599999952882939
+                                            rotation 1.6702214403303398e-16 0.9999999999999999 1.0685033089253014e-15 0.9599999947215037
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -6536,7 +6537,7 @@ DEF Robot_3 Robot {
                               ]
                               endPoint Solid {
                                 translation 0.069 0.013 -0.005
-                                rotation 5.611659143898162e-16 1 -3.534697008648299e-16 0.9599999800442962
+                                rotation 5.611659167170452e-16 1 -3.5346970105633515e-16 0.9599999767925423
                                 children [
                                   USE PHALANX_TRANS
                                   DEF LPhalanx5 HingeJoint {
@@ -6556,7 +6557,7 @@ DEF Robot_3 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation 2.448814319164957e-16 1 -5.848263238013747e-16 0.9599999806171052
+                                      rotation 2.4488143334544056e-16 0.9999999999999999 -5.848263249909866e-16 0.9599999779087178
                                       children [
                                         USE PHALANX_TRANS
                                         DEF LPhalanx6 HingeJoint {
@@ -6576,7 +6577,7 @@ DEF Robot_3 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation -3.0588226329360077e-16 1 1.1798082228650756e-15 0.9599999952885585
+                                            rotation -3.0588226379443514e-16 1 1.1798082234205923e-15 0.959999994721797
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -6637,7 +6638,7 @@ DEF Robot_3 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -6.398890776274858e-17 -1 -5.276314285309409e-16 0.9599999955164068
+                                      rotation -6.398890796902636e-17 -1 -5.276314288320124e-16 0.9599999948822355
                                       children [
                                         USE PHALANX_TRANS
                                       ]
@@ -8503,7 +8504,7 @@ DEF Robot_4 Robot {
                               ]
                               endPoint Solid {
                                 translation 0.069 -0.013 -0.005
-                                rotation 4.46940377570772e-17 1 -6.046448856979581e-16 0.959999979586718
+                                rotation 4.4694038904648426e-17 1 -6.046448875538991e-16 0.9599999762628055
                                 children [
                                   DEF HAND_SLOT Pose {
                                     rotation 0 -1 0 0.96
@@ -8542,7 +8543,7 @@ DEF Robot_4 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation 2.8773579663061206e-16 1 -6.355539261392359e-16 0.9599999810027269
+                                      rotation 2.8773579820353977e-16 0.9999999999999999 -6.355539273743529e-16 0.9599999783552404
                                       children [
                                         USE PHALANX_TRANS
                                         DEF RPhalanx3 HingeJoint {
@@ -8562,7 +8563,7 @@ DEF Robot_4 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 3.187298447911511e-16 0.9999999999999999 9.748733951520358e-16 0.9599999950549583
+                                            rotation 3.1872984467939557e-16 1 9.748733958273112e-16 0.9599999944386312
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -8606,7 +8607,7 @@ DEF Robot_4 Robot {
                               ]
                               endPoint Solid {
                                 translation 0.069 0.013 -0.005
-                                rotation 2.0217482960425255e-16 0.9999999999999999 -8.812868191447689e-16 0.9599999795880624
+                                rotation 2.0217483171422944e-16 1 -8.812868216220074e-16 0.9599999762642913
                                 children [
                                   USE PHALANX_TRANS
                                   DEF RPhalanx5 HingeJoint {
@@ -8626,7 +8627,7 @@ DEF Robot_4 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -6.208164711465737e-17 1 -2.0812467533158123e-16 0.9599999810044334
+                                      rotation -6.208164699701666e-17 1 -2.081246759429047e-16 0.9599999783571633
                                       children [
                                         USE PHALANX_TRANS
                                         DEF RPhalanx6 HingeJoint {
@@ -8646,7 +8647,7 @@ DEF Robot_4 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 1.8631099124750462e-17 0.9999999999999999 8.236396262438427e-16 0.9599999950574716
+                                            rotation 1.863109888210898e-17 1 8.236396267368222e-16 0.9599999944415138
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -8707,7 +8708,7 @@ DEF Robot_4 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -2.573545626328329e-16 -1 -5.116363955391368e-16 0.9599999956248164
+                                      rotation -2.573545629432053e-16 -0.9999999999999999 -5.116363957629475e-16 0.9599999950077536
                                       children [
                                         USE PHALANX_TRANS
                                       ]
@@ -9052,7 +9053,7 @@ DEF Robot_4 Robot {
                               ]
                               endPoint Solid {
                                 translation 0.069 -0.013 -0.005
-                                rotation -5.249699298864528e-16 1 2.748706978608231e-16 0.959999980044349
+                                rotation -5.249699319728256e-16 1 2.7487069786571265e-16 0.9599999767926327
                                 children [
                                   DEF HAND_SLOT Pose {
                                     rotation 0 -1 0 0.96
@@ -9091,7 +9092,7 @@ DEF Robot_4 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation 1.130992154612789e-15 1 2.549572821513656e-17 0.9599999806152021
+                                      rotation 1.130992157520492e-15 1 2.5495729813221274e-17 0.959999977906503
                                       children [
                                         USE PHALANX_TRANS
                                         DEF LPhalanx3 HingeJoint {
@@ -9111,7 +9112,7 @@ DEF Robot_4 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 5.930169152535863e-17 0.9999999999999999 1.1947713282031737e-15 0.9599999952884162
+                                            rotation 5.930169121905566e-17 0.9999999999999999 1.1947713288703366e-15 0.9599999947216402
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -9155,7 +9156,7 @@ DEF Robot_4 Robot {
                               ]
                               endPoint Solid {
                                 translation 0.069 0.013 -0.005
-                                rotation -4.377550883172836e-16 1 -2.4867029004752074e-16 0.9599999800428143
+                                rotation -4.377550892801427e-16 1 -2.4867029153593467e-16 0.959999976790893
                                 children [
                                   USE PHALANX_TRANS
                                   DEF LPhalanx5 HingeJoint {
@@ -9175,7 +9176,7 @@ DEF Robot_4 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation 2.9777748344372016e-16 1 1.72198418658351e-16 0.9599999806181578
+                                      rotation 2.9777748398507413e-16 0.9999999999999999 1.7219841950947823e-16 0.9599999779098887
                                       children [
                                         USE PHALANX_TRANS
                                         DEF LPhalanx6 HingeJoint {
@@ -9195,7 +9196,7 @@ DEF Robot_4 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 6.99105851628294e-17 1 1.21123965909083e-15 0.9599999952883401
+                                            rotation 6.991058485762412e-17 1 1.211239659769987e-15 0.959999994721547
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -9256,7 +9257,7 @@ DEF Robot_4 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -3.1801403750001255e-16 -0.9999999999999999 -4.324687241279751e-16 0.9599999955157937
+                                      rotation -3.1801403783087245e-16 -1 -4.3246872429055834e-16 0.9599999948815474
                                       children [
                                         USE PHALANX_TRANS
                                       ]
@@ -11119,7 +11120,7 @@ DEF Robot_5 Robot {
                               ]
                               endPoint Solid {
                                 translation 0.069 -0.013 -0.005
-                                rotation -2.2107877153289858e-17 1 -3.718431423888732e-16 0.9599999938194205
+                                rotation -2.2107876957464826e-17 1 -3.718431428266567e-16 0.9599999926303598
                                 children [
                                   DEF HAND_SLOT Pose {
                                     rotation 0 -1 0 0.96
@@ -11158,7 +11159,7 @@ DEF Robot_5 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation 4.822212876893358e-16 1 -3.133729517290077e-16 0.9599999826035733
+                                      rotation 4.822212891814208e-16 1 -3.133729518730991e-16 0.9599999801962723
                                       children [
                                         USE PHALANX_TRANS
                                         DEF RPhalanx3 HingeJoint {
@@ -11178,7 +11179,7 @@ DEF Robot_5 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 1.396975295683962e-16 1 9.766854468070448e-16 0.9599999935541099
+                                            rotation 1.3969752927086324e-16 1 9.766854476537255e-16 0.9599999927140395
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -11222,7 +11223,7 @@ DEF Robot_5 Robot {
                               ]
                               endPoint Solid {
                                 translation 0.069 0.013 -0.005
-                                rotation -4.1441622887594527e-16 1 -2.33436297916627e-17 0.9599999938206794
+                                rotation -4.1441622933525075e-16 1 -2.3343630064660112e-17 0.9599999926318091
                                 children [
                                   USE PHALANX_TRANS
                                   DEF RPhalanx5 HingeJoint {
@@ -11242,7 +11243,7 @@ DEF Robot_5 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation 8.588477589849592e-16 1 -1.2290674120533256e-16 0.9599999826062791
+                                      rotation 8.588477611182731e-16 1 -1.2290674045583697e-16 0.9599999801992897
                                       children [
                                         USE PHALANX_TRANS
                                         DEF RPhalanx6 HingeJoint {
@@ -11262,7 +11263,7 @@ DEF Robot_5 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation -7.410628120034706e-17 1 1.0697308729797045e-15 0.9599999935543619
+                                            rotation -7.410628170944742e-17 1 1.0697308738116262e-15 0.9599999927143146
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -11323,7 +11324,7 @@ DEF Robot_5 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -2.455266670152023e-16 -1 -4.350723078610522e-16 0.9599999959017076
+                                      rotation -2.4552666727611455e-16 -0.9999999999999999 -4.350723080308821e-16 0.9599999953261784
                                       children [
                                         USE PHALANX_TRANS
                                       ]
@@ -11668,7 +11669,7 @@ DEF Robot_5 Robot {
                               ]
                               endPoint Solid {
                                 translation 0.069 -0.013 -0.005
-                                rotation 8.183779089614359e-16 1 6.199696934456071e-18 0.9599999940367604
+                                rotation 8.183779098639733e-16 1 6.199697413051505e-18 0.9599999928839161
                                 children [
                                   DEF HAND_SLOT Pose {
                                     rotation 0 -1 0 0.96
@@ -11707,7 +11708,7 @@ DEF Robot_5 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation 1.2686377141603672e-16 1 -3.240361849735558e-16 0.9599999824231206
+                                      rotation 1.26863772107936e-16 1 -3.240361855775023e-16 0.9599999799856503
                                       children [
                                         USE PHALANX_TRANS
                                         DEF LPhalanx3 HingeJoint {
@@ -11727,7 +11728,7 @@ DEF Robot_5 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 1.9732314247771956e-16 1 4.706880694552498e-16 0.9599999933788455
+                                            rotation 1.9732314243787964e-16 1 4.706880699339577e-16 0.9599999925095983
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -11771,7 +11772,7 @@ DEF Robot_5 Robot {
                               ]
                               endPoint Solid {
                                 translation 0.069 0.013 -0.005
-                                rotation 4.044150545490762e-16 1 -5.2201160441989493e-17 0.9599999940363753
+                                rotation 4.0441505502695816e-16 0.9999999999999999 -5.22011602666648e-17 0.9599999928834761
                                 children [
                                   USE PHALANX_TRANS
                                   DEF LPhalanx5 HingeJoint {
@@ -11791,7 +11792,7 @@ DEF Robot_5 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -3.833514126711173e-17 0.9999999999999999 -4.2072009517306725e-16 0.959999982422805
+                                      rotation -3.833514084410227e-17 1 -4.207200962046929e-16 0.959999979985309
                                       children [
                                         USE PHALANX_TRANS
                                         DEF LPhalanx6 HingeJoint {
@@ -11811,7 +11812,7 @@ DEF Robot_5 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 3.002243476440882e-16 0.9999999999999999 1.582419417939993e-15 0.959999993378731
+                                            rotation 3.002243472069528e-16 1 1.5824194193915895e-15 0.9599999925094521
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -11872,7 +11873,7 @@ DEF Robot_5 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -3.8745259757273326e-16 -1 -8.546320019445864e-16 0.9599999958502446
+                                      rotation -3.874525980396578e-16 -1 -8.546320023108412e-16 0.9599999952661726
                                       children [
                                         USE PHALANX_TRANS
                                       ]
@@ -13735,7 +13736,7 @@ DEF Robot_6 Robot {
                               ]
                               endPoint Solid {
                                 translation 0.069 -0.013 -0.005
-                                rotation 1.1054884680566924e-16 1 -4.469706492907793e-16 0.9599999938202225
+                                rotation 1.1054884719761427e-16 0.9999999999999999 -4.469706497354461e-16 0.9599999926312772
                                 children [
                                   DEF HAND_SLOT Pose {
                                     rotation 0 -1 0 0.96
@@ -13774,7 +13775,7 @@ DEF Robot_6 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation 5.834907264368735e-16 1 -5.839692532888308e-16 0.9599999826035676
+                                      rotation 5.834907284887832e-16 1 -5.839692539366423e-16 0.9599999801962839
                                       children [
                                         USE PHALANX_TRANS
                                         DEF RPhalanx3 HingeJoint {
@@ -13794,7 +13795,7 @@ DEF Robot_6 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 2.5088596806034413e-16 0.9999999999999999 1.4732649643331528e-16 0.9599999935536185
+                                            rotation 2.5088596820089326e-16 1 1.4732649665758247e-16 0.9599999927134673
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -13838,7 +13839,7 @@ DEF Robot_6 Robot {
                               ]
                               endPoint Solid {
                                 translation 0.069 0.013 -0.005
-                                rotation -3.5423779403619634e-16 0.9999999999999999 -6.924525290180711e-16 0.9599999938200278
+                                rotation -3.5423779402904773e-16 1 -6.924525300193558e-16 0.9599999926310767
                                 children [
                                   USE PHALANX_TRANS
                                   DEF RPhalanx5 HingeJoint {
@@ -13858,7 +13859,7 @@ DEF Robot_6 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation 4.4474716695117635e-16 1 -2.0976718797414753e-16 0.9599999826064612
+                                      rotation 4.447471682317553e-16 1 -2.0976718792381482e-16 0.9599999801994632
                                       children [
                                         USE PHALANX_TRANS
                                         DEF RPhalanx6 HingeJoint {
@@ -13878,7 +13879,7 @@ DEF Robot_6 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 4.1192834568476373e-16 1 5.508089082736759e-16 0.959999993554007
+                                            rotation 4.1192834578575646e-16 1 5.508089088911176e-16 0.9599999927139136
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -13939,7 +13940,7 @@ DEF Robot_6 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -2.0547441514087158e-16 -1 -7.40857890351687e-16 0.9599999959018889
+                                      rotation -2.0547441546762724e-16 -1 -7.408578907020507e-16 0.9599999953263799
                                       children [
                                         USE PHALANX_TRANS
                                       ]
@@ -14284,7 +14285,7 @@ DEF Robot_6 Robot {
                               ]
                               endPoint Solid {
                                 translation 0.069 -0.013 -0.005
-                                rotation 8.976599575169878e-16 1 1.0032589517491407e-16 0.9599999940369089
+                                rotation 8.976599584529957e-16 0.9999999999999999 1.0032589580338981e-16 0.9599999928841311
                                 children [
                                   DEF HAND_SLOT Pose {
                                     rotation 0 -1 0 0.96
@@ -14323,7 +14324,7 @@ DEF Robot_6 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation 2.847785378864914e-16 0.9999999999999999 -6.522011292966463e-16 0.9599999824219578
+                                      rotation 2.847785393481302e-16 1 -6.522011304764576e-16 0.9599999799842885
                                       children [
                                         USE PHALANX_TRANS
                                         DEF LPhalanx3 HingeJoint {
@@ -14343,7 +14344,7 @@ DEF Robot_6 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 5.624994964510806e-16 1 5.157017963638981e-16 0.9599999933794499
+                                            rotation 5.624994966965144e-16 1 5.157017970388334e-16 0.9599999925102863
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -14387,7 +14388,7 @@ DEF Robot_6 Robot {
                               ]
                               endPoint Solid {
                                 translation 0.069 0.013 -0.005
-                                rotation 8.873477592779464e-16 1 -1.8989689968865867e-16 0.9599999940368743
+                                rotation 8.873477603698437e-16 1 -1.8989689938743667e-16 0.9599999928840705
                                 children [
                                   USE PHALANX_TRANS
                                   DEF LPhalanx5 HingeJoint {
@@ -14407,7 +14408,7 @@ DEF Robot_6 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -1.6892149288794318e-16 1 -5.227990411217109e-16 0.9599999824228633
+                                      rotation -1.6892149264622737e-16 1 -5.227990425514541e-16 0.9599999799853671
                                       children [
                                         USE PHALANX_TRANS
                                         DEF LPhalanx6 HingeJoint {
@@ -14427,7 +14428,7 @@ DEF Robot_6 Robot {
                                           ]
                                           endPoint Solid {
                                             translation 0.014 0 0
-                                            rotation 4.523926822823273e-16 1 9.367403754556863e-16 0.9599999933787353
+                                            rotation 4.523926822528697e-16 1 9.367403764343578e-16 0.9599999925094622
                                             children [
                                               USE PHALANX_TRANS
                                             ]
@@ -14488,7 +14489,7 @@ DEF Robot_6 Robot {
                                     ]
                                     endPoint Solid {
                                       translation 0.014 0 0
-                                      rotation -4.523400012427696e-16 -0.9999999999999999 -9.80413586115788e-16 0.9599999958501259
+                                      rotation -4.523400017828411e-16 -1 -9.804135865336624e-16 0.9599999952660366
                                       children [
                                         USE PHALANX_TRANS
                                       ]
@@ -15731,5 +15732,9 @@ DEF Robot_6 Robot {
       1.43116e-05 0.000155191 -2.70793e-05
     ]
   }
+  controller "<none>"
+}
+Nao {
+  translation -1.71 -1.14 0.334
   controller "<none>"
 }
