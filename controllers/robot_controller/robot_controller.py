@@ -331,11 +331,10 @@ class SoccerRobot(Nao):
         self.action_queue = deque() # Priority queue for handling actions
         self.target_position = [0, 0] # The position the robot is heading towards
         self.target_rotation = [0, 0] # The rotation the robot is targeting
-        self.setup_time = 0 # The delay before running the robot to ensure physics calculations are all done
+        self.setup_time = 2 # The delay before running the robot to ensure physics calculations are all done
         self.start_time = 0
         self.last_position = [0, 0]
         self.last_rotation = 0
-        self.paused = True
 
     def connect_to_server(self, host, port):
         """Establishes a connection to the game server and sends its GPS position"""
@@ -399,8 +398,7 @@ class SoccerRobot(Nao):
                 self.role = message_parts[1]
                 print(f'📢 Assigned Role: {self.role}')
             case "START":
-                self.paused = False
-                self.setup_time = float(message_parts[1])
+                self.create_delay(float(message_parts[1]))
             case "INFO":
                 team_number = message_parts[1]
                 player_id = message_parts[2]
@@ -426,10 +424,11 @@ class SoccerRobot(Nao):
             pass
         if self.has_fallen():
             self.play_standup_motion()
+            self.state = "Standing"
         elif self.state == "Moving":
             self.move_to_position(self.target_position)
         elif self.state == "Turning":
-            self.turn_to_direction(self.target_rotation, 2)
+            self.turn_to_direction(self.target_rotation)
         elif self.state == "Kicking":
             # Reset kicking state after kick is done
             if self.currentlyPlaying == self.shoot and self.currentlyPlaying.isOver():
@@ -444,15 +443,16 @@ class SoccerRobot(Nao):
             case "Defender":
                 pass
             case _:
-                # If the ball moved 
+                # If the ball moved then redirect player
                 if self.get_distance(self.ball_position, self.target_position) > 0.5:
                     self.go_to(self.ball_position[0], self.ball_position[1])
                 # Player with no role should just head towards the ball
                 if not self.state:
-                    if self.get_distance(self.ball_position, self.get_position()) > 0.2:
+                    if self.get_distance(self.ball_position, self.get_position()) > 0.25:
                         self.go_to(self.ball_position[0], self.ball_position[1])
                     elif self.state != "Kicking":
                         self.play_kick_ball()
+                        self.state = "Kicking"
                   
     def has_fallen(self, force_threshold = 5):
         """Determines if the robot has fallen using foot pressure sensors"""
@@ -493,8 +493,9 @@ class SoccerRobot(Nao):
     
     def is_standup_motion_in_action(self):
         """Checks if the robot is in process of standing up"""
-        if self.currentlyPlaying == self.standupFromBack or self.currentlyPlaying == self.standupFromFront and not self.currentlyPlaying.isOver():
+        if (self.currentlyPlaying == self.standupFromBack or self.currentlyPlaying == self.standupFromFront) and not self.currentlyPlaying.isOver():
             return True
+        self.state = None
         return False
 
     def send_player_state(self, force = False):
@@ -518,13 +519,13 @@ class SoccerRobot(Nao):
         # Turn before moving
         x_current, y_current = position[0], position[1]
         direction = self.normalize_vector([x_position - x_current, y_position - y_current])
-        if self.turn_to_direction(direction, 2):
+        if self.turn_to_direction(direction):
             self.start_turn(direction)
         else:
             self.state = "Moving"
             self.start_motion(self.smallForwards)
 
-    def move_to_position(self, position, threshold = 0.2):
+    def move_to_position(self, position, threshold = 0.15):
         """Move the robot to the target position"""
         curr_position = self.get_position()
         x_current, y_current = curr_position[0], curr_position[1]
@@ -544,13 +545,13 @@ class SoccerRobot(Nao):
                 self.start_turn(direction)
                 return False
             # Take small steps when it is close else large steps
-            if distance < threshold * 2: 
+            if distance < threshold * 3:
                 self.start_motion(self.smallForwards)
             else: 
                 self.start_motion(self.largeForwards)
         return False
 
-    def turn_to_direction(self, direction, threshold = 5):
+    def turn_to_direction(self, direction, threshold = 15):
         """Turn the robot towards the target direction"""
         # Find the angle to turn to within [-pi, pi]
         current_angle = self.get_rotation()[2]
@@ -615,6 +616,11 @@ class SoccerRobot(Nao):
         self.ball_position[1] = y
         self.ball_position[2] = z
 
+    def create_delay(self, duration):
+        """Creates a delay for physics related simulation"""
+        self.setup_time = duration
+        self.start_time = self.getTime()
+
     def is_setup_time_over(self, multiplier = 1):
         """Returns True if the setup time has passed"""
         return self.getTime() >= self.start_time + self.setup_time * multiplier
@@ -636,6 +642,6 @@ client_thread.start()
 
 # Webots main loop
 while soccer_robot.step(timeStep) != -1:
-    if not soccer_robot.paused and soccer_robot.is_setup_time_over():
+    if soccer_robot.is_setup_time_over():
         soccer_robot.determine_action()
         soccer_robot.send_player_state()
