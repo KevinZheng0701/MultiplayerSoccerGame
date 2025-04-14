@@ -4,7 +4,7 @@ import threading
 import uuid
 import math
 
-GOALIE_X_POSITION = 4.25  # The starting x position of the goalie robot
+GOALIE_X_POSITION = 4.5  # The starting x position of the goalie robot
 ROBOT_X_POSITION = 2.5 # The starting x position of the robots
 ROBOT_Z_POSITION = 0.333 # The starting z position of the robots represents the height
 

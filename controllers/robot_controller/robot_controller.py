@@ -4,7 +4,7 @@ import threading
 import math
 from collections import deque
 
-GOALIE_X_POSITION = 4.25
+GOALIE_X_POSITION = 4.5
 
 class Nao(Robot):
     PHALANX_MAX = 8
@@ -416,8 +416,7 @@ class SoccerRobot(Nao):
                     self.player_team[player_id] = team_number
                     print(f'📢 New teammate: {player_id}') if team_number == self.team_number else print(f'📢 New opponent: {player_id}')
             case _:
-                print(message)
-                print("❓ Unknown message type")
+                print(f'❓ Unknown message type: {message}')
 
     def determine_action(self):
         """Determine what to do based on role and current game state"""
@@ -429,15 +428,18 @@ class SoccerRobot(Nao):
             self.play_standup_motion()
             self.state = "Standing"
             return
+        elif self.state == "Kicking":
+            if self.currentlyPlaying == self.shoot and self.currentlyPlaying.isOver():
+                self.state = None # Reset kicking state after kick is done
+            return
         elif self.state == "Moving":
             self.move_to_position(self.target_position)
         elif self.state == "Turning":
             self.turn_to_direction(self.target_rotation, moveAfterTurn = True)
-        elif self.state == "Kicking":
-            if self.currentlyPlaying == self.shoot and self.currentlyPlaying.isOver():
-                self.state = None # Reset kicking state after kick is done
         elif self.state == "Sliding":
             self.side_step_to_position(self.target_position[1])
+        elif self.state == "Backing":
+            self.back_up(self.target_position[0])
         match self.role:
             case "Goalie":
                 self.determine_goalie_action()
@@ -451,32 +453,50 @@ class SoccerRobot(Nao):
                 pass
                 #self.determine_defender_action()
             case _:
-                print(f"⚠️ Role not recognized: '{self.role}' — no action taken.")
+                print(f'⚠️ Role not recognized: {self.role}')
     
-    def determine_goalie_action(self):
+    def determine_goalie_action(self, threshold = 0.1):
         """Determine what to do as the goalie"""
-        # Goalie should be positioned along the goalie x line
+        # If the ball is far from goal the goalie should just stay along the x axis of the goal
         position = self.get_position()
-        goalie_x_axis = -GOALIE_X_POSITION if self.team_number == "1" else GOALIE_X_POSITION
-        if position[0] - goalie_x_axis > 0.25:
-            self.go_to(goalie_x_axis, 0)
-            return
-        
-        # Goalie should be facing towards the other team goal
-        target_direction = [1, 0] if self.team_number == "1" else [-1, 0]
-        if self.turn_to_direction(target_direction, 20):
-            return
-
-        # If the ball is far from goal the goalie should just stay still
-        ball_x_position = self.ball_position[0]
+        ball_x_position, ball_y_position, _ = self.ball_position
         if abs(ball_x_position - position[0]) > 4:
-            return
+            # Goalie should be positioned along the goalie x line
+            goalie_x_axis = -GOALIE_X_POSITION if self.team_number == "1" else GOALIE_X_POSITION
+            if abs(position[0] - goalie_x_axis) > threshold:
+                self.go_to(goalie_x_axis, 0)
+                return
+            # Goalie should be facing towards the other team goal
+            target_direction = [1, 0] if self.team_number == "1" else [-1, 0]
+            self.turn_to_direction(target_direction, 20)
+        else:
+            # Goalie should be facing towards the other team goal
+            target_direction = [1, 0] if self.team_number == "1" else [-1, 0]
+            if self.turn_to_direction(target_direction, 20):
+                return
 
-        # Move the robot in front of the ball
-        ball_y_position = self.ball_position[1]
-        print(ball_y_position, self.target_position[1], abs(ball_y_position - self.target_position[1]))
-        if abs(ball_y_position - self.target_position[1]) > 0.25:
-            self.slide_to_y_position(ball_y_position, -1.5, 1.5)
+            # If the robot is in front of the ball, the robot should move back
+            goalie_x_axis = -GOALIE_X_POSITION if self.team_number == "1" else GOALIE_X_POSITION
+            is_ball_in_front = ball_x_position < position[0] if self.team_number == "1" else ball_x_position > position[0]
+            if is_ball_in_front:
+                self.target_position[0] = goalie_x_axis
+                self.state = "Backing"
+                return
+
+            # Move the robot in front of the ball
+            if abs(ball_y_position - position[1]) > threshold:
+                self.slide_to_y_position(ball_y_position, -1.5, 1.5)
+                return
+            
+            distance_from_ball = self.get_distance([ball_x_position, ball_y_position], [goalie_x_axis, position[1]]) 
+            print(distance_from_ball)
+            # If ball is in front of the goalie then the goalie should just kick it
+            if distance_from_ball < threshold:
+                self.play_kick_ball()
+                self.state = "Kicking"
+            # Move the robot towards the ball 
+            elif distance_from_ball < 1:
+                self.go_to(ball_x_position, ball_y_position, 0.1)
 
         '''
         # POSSESSION condition: close enough to be considered in control
@@ -569,8 +589,8 @@ class SoccerRobot(Nao):
             if self.get_distance(self.ball_position, self.get_position()) > 0.25:
                 self.go_to(self.ball_position[0], self.ball_position[1])
             elif self.state != "Kicking":
-                self.state = "Kicking"
                 self.play_kick_ball()
+                self.state = "Kicking"
 
         """
         # Determine if the striker is close to the goal
@@ -795,11 +815,10 @@ class SoccerRobot(Nao):
         self.target_position[1] = clamped_pos
         self.state = "Sliding"
 
-    def side_step_to_position(self, y_position, threshold = 0.25):
+    def side_step_to_position(self, y_position, threshold = 0.1):
         """Move the robot using side step motions"""
         y_current = self.get_position()[1]
         difference = y_position - y_current
-        print("Diff:" , y_current, y_position, difference)
         # If the robot reached the target position then stop moving
         if abs(difference) < threshold:
             self.state = None
@@ -812,6 +831,15 @@ class SoccerRobot(Nao):
             else:
                 motion = self.sideStepRight if difference > 0 else self.sideStepLeft
             self.start_motion(motion)
+    
+    def back_up(self, target, threshold = 0.1):
+        """Makes the robot back up"""
+        x_position = self.get_position()[0]
+        if abs(target - x_position) < threshold:
+            self.state = None
+            return
+        if self.is_motion_over():
+            self.start_motion(self.backwards)
 
     def normalize_vector(self, vector):
         """Normalizes a vector"""
