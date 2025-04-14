@@ -333,7 +333,7 @@ class SoccerRobot(Nao):
         self.action_queue = deque() # Priority queue for handling actions
         self.target_position = [0, 0] # The position the robot is heading towards
         self.target_rotation = [0, 0] # The rotation the robot is targeting
-        self.setup_time = 2 # The delay before running the robot to ensure physics calculations are all done
+        self.setup_time = math.inf # The delay before running the robot to ensure physics calculations are all done
         self.start_time = 0
         self.last_position = [0, 0]
         self.last_rotation = 0
@@ -371,7 +371,6 @@ class SoccerRobot(Nao):
 
     def handle_message(self, message):
         """Handles messages from the server"""
-        print(message)
         message_parts = message.split("|")
         message_type = message_parts[0]
         match message_type:
@@ -408,10 +407,12 @@ class SoccerRobot(Nao):
                 if not self.player_id:
                     self.team_number = team_number
                     self.player_id = player_id
+                    robot_name = self.getName()
+                    self.sock.sendall(f'ROBOT|{self.player_id}|{robot_name}\n'.encode("utf-8"))
                     print(f'🆔 Assigned to team {self.team_number} with Player ID: {self.player_id}')
                 else:
                     # Set up player default state
-                    self.player_states[player_id] = ["Midfielder", [0, 0], [0, 0, 0, 0]]
+                    self.player_states[player_id] = ["Midfielder", [0, 0], 0]
                     self.player_team[player_id] = team_number
                     print(f'📢 New teammate: {player_id}') if team_number == self.team_number else print(f'📢 New opponent: {player_id}')
             case _:
@@ -441,11 +442,14 @@ class SoccerRobot(Nao):
             case "Goalie":
                 self.determine_goalie_action()
             case "Striker":
-                self.determine_striker_action()
+                pass
+                #self.determine_striker_action()
             case "Midfielder":
-                self.determine_midfielder_action()
+                pass
+                #self.determine_midfielder_action()
             case "Defender":
-                self.determine_defender_action()
+                pass
+                #self.determine_defender_action()
             case _:
                 print(f"⚠️ Role not recognized: '{self.role}' — no action taken.")
     
@@ -453,24 +457,26 @@ class SoccerRobot(Nao):
         """Determine what to do as the goalie"""
         # Goalie should be positioned along the goalie x line
         position = self.get_position()
-        goalie_x_axis = -GOALIE_X_POSITION if self.team_number == 1 else GOALIE_X_POSITION
+        goalie_x_axis = -GOALIE_X_POSITION if self.team_number == "1" else GOALIE_X_POSITION
         if position[0] - goalie_x_axis > 0.25:
-            self.go_to(goalie_x_axis, position[1])
+            self.go_to(goalie_x_axis, 0)
             return
         
         # Goalie should be facing towards the other team goal
-        target_direction = [1, 0] if self.team_number == 1 else [-1, 0]
+        target_direction = [1, 0] if self.team_number == "1" else [-1, 0]
         if self.turn_to_direction(target_direction, 20):
             return
 
         # If the ball is far from goal the goalie should just stay still
-        ball_y_position = self.ball_position[1]
-        if abs(ball_y_position - position[1]) > 4:
+        ball_x_position = self.ball_position[0]
+        if abs(ball_x_position - position[0]) > 4:
             return
 
         # Move the robot in front of the ball
+        ball_y_position = self.ball_position[1]
+        print(ball_y_position, self.target_position[1], abs(ball_y_position - self.target_position[1]))
         if abs(ball_y_position - self.target_position[1]) > 0.25:
-            self.slide_to_y_position(ball_y_position)
+            self.slide_to_y_position(ball_y_position, -1.5, 1.5)
 
         '''
         # POSSESSION condition: close enough to be considered in control
@@ -566,20 +572,7 @@ class SoccerRobot(Nao):
                 self.state = "Kicking"
                 self.play_kick_ball()
 
-        my_position = self.get_position()
-        ball_position = self.ball_position
-        distance_to_ball = self.get_distance(my_position, [ball_position[0], ball_position[1]])
-
-        # Fall recovery
-        if self.has_fallen():
-            self.play_standup_motion()
-            return
-
-        # If the robot doesn't yet have possession, move toward the ball
-        if distance_to_ball > 0.25:
-            self.go_to(ball_position[0], ball_position[1])
-            return
-
+        """
         # Determine if the striker is close to the goal
         goal_x = 4.5 if self.team_number == "1" else -4.5
         close_to_goal = abs(ball_position[0] - goal_x) < 1.2
@@ -642,6 +635,7 @@ class SoccerRobot(Nao):
             self.go_to(ball_position[0] + offset, ball_position[1])
             print("Striker: Dribbling forward.")
             # Role might change to Defender if intercepted
+        """
 
     def determine_midfielder_action(self):
         """Determine what to do as midfielder"""
@@ -748,7 +742,6 @@ class SoccerRobot(Nao):
             self.start_turn(direction)
         else:
             self.state = "Moving"
-            self.start_motion(self.smallForwards)
 
     def move_to_position(self, position, threshold = 0.15):
         """Move the robot to the target position"""
@@ -758,7 +751,6 @@ class SoccerRobot(Nao):
         distance = self.get_distance([x_current, y_current], position)
         if distance < threshold:
             print(f'At position {x_current}, {y_current}.')
-            self.stop_motion()
             self.state = None
             return True
         
@@ -783,11 +775,11 @@ class SoccerRobot(Nao):
         angle_difference = self.calculate_angle_difference(current_angle, target_angle)
 
         # Positive angle indicates a left turn and negative angle indicates a right turn
-        print(f"Current yaw: {math.degrees(current_angle):.2f}°, Target yaw: {math.degrees(target_angle):.2f}°, Yaw diff: {abs(math.degrees(angle_difference)):.2f}°")
+        #print(f"Current yaw: {math.degrees(current_angle):.2f}°, Target yaw: {math.degrees(target_angle):.2f}°, Yaw diff: {abs(math.degrees(angle_difference)):.2f}°")
         if abs(angle_difference) < math.radians(threshold):
             if self.state == "Turning" and moveAfterTurn:
                 self.stop_turn_and_start_moving()
-            else:
+            elif self.state == "Turning":
                 self.state = None
             return False # Return false for no turning needed
         
@@ -803,19 +795,19 @@ class SoccerRobot(Nao):
         self.target_position[1] = clamped_pos
         self.state = "Sliding"
 
-    def side_step_to_position(self, y_position, threshold = 0.1):
+    def side_step_to_position(self, y_position, threshold = 0.25):
         """Move the robot using side step motions"""
         y_current = self.get_position()[1]
         difference = y_position - y_current
+        print("Diff:" , y_current, y_position, difference)
         # If the robot reached the target position then stop moving
         if abs(difference) < threshold:
-            self.stop_motion()
             self.state = None
             return
         
         # Move the robot
         if self.is_motion_over():
-            if self.team_number == 1:
+            if self.team_number == "1":
                 motion = self.sideStepLeft if difference > 0 else self.sideStepRight
             else:
                 motion = self.sideStepRight if difference > 0 else self.sideStepLeft
@@ -869,8 +861,8 @@ class SoccerRobot(Nao):
 
     def create_delay(self, duration):
         """Creates a delay for physics related simulation"""
-        self.setup_time = duration
         self.start_time = self.getTime()
+        self.setup_time = duration + self.start_time
 
     def is_setup_time_over(self, multiplier = 1):
         """Returns True if the setup time has passed"""

@@ -136,6 +136,14 @@ class GameServer(Supervisor):
             case "GET":
                 print("Requesting information.")
                 #sender.sendall("Data".encode("utf-8"))
+            case "ROBOT":
+                self.players[sender] = self.getFromDef(message_parts[2]) # Add the robot reference
+                # If all clients joined, then start the game by first assigning initial roles
+                if len(self.players) == self.players_limit:
+                    self.assign_initial_team_states(self.team1)
+                    self.assign_initial_team_states(self.team2)
+                    self.send_initial_states()
+                    self.start_game()
             case _:
                 print(message)
                 print("Unknown Type.")
@@ -148,7 +156,6 @@ class GameServer(Supervisor):
         # Add player to the clients list
         with self.client_lock:
             self.clients[player_id] = connection
-            self.players[player_id] = self.getFromDef("Robot_" + str(len(self.clients))) # Add the robot reference
 
         # Assign client a team
         if len(self.team1) <= len(self.team2):
@@ -171,14 +178,6 @@ class GameServer(Supervisor):
             if id != player_id:
                 connection.sendall(f'INFO|2|{id}\n'.encode("utf-8"))
         print(f"📢 Clients connected: {len(self.clients)}")
-        
-        # If all clients joined, then start the game by first assigning initial roles
-        with self.client_lock:
-            if len(self.clients) == self.players_limit:
-                self.assign_initial_team_states(self.team1)
-                self.assign_initial_team_states(self.team2)
-                self.send_initial_states()
-                self.start_game()
 
     def send_initial_states(self):
         """Broadcasts the initial state of the game(players and ball)"""
