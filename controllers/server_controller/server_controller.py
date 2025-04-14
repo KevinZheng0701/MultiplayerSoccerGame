@@ -244,6 +244,7 @@ class GameServer(Supervisor):
 
     def start_game(self):
         """Sends a start message to the players"""
+        print("🔫 Game started!")
         self.broadcast(f'START|1\n')
         self.game_started = True
 
@@ -255,9 +256,9 @@ class GameServer(Supervisor):
     def player_distance_to_ball(self, player_id):
         """Calculates the Euclidean distance from a player to the ball"""
         player_state = self.player_states[player_id]
-        x_position, y_position = player_state[2], player_state[3]
+        position = player_state[2]  # [x, y]
         ball_position = self.ball.getPosition()
-        return self.get_distance([x_position, y_position], ball_position)
+        return self.get_distance(position, ball_position)
 
     def send_ball_position(self, force = False):
         """Sends the current ball position to the clients"""

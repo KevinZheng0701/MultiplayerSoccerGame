@@ -49,8 +49,12 @@ class Nao(Robot):
         self.currentlyPlaying = False
 
     def play_standup_motion(self):
-        """Play the standup motion"""
-        self.start_motion(self.standupFromBack)
+        """Play the appropriate standup motion based on pitch orientation"""
+        pitch = self.get_rotation()[1]
+        if pitch > 0:  # Forward fall (face down)
+            self.start_motion(self.standupFromFront)
+        else:  # Backward fall (face up)
+            self.start_motion(self.standupFromBack)
 
     def play_kick_ball(self):
         """Play the kick motion"""
@@ -323,6 +327,8 @@ class SoccerRobot(Nao):
     def __init__(self):
         Nao.__init__(self)
         self.player_team = {}
+        self.turn_attempts = 0
+        self.max_turn_attempts = 10
         self.ball_position = [0, 0, 0]
         self.player_states = {}  # Store player positions and role status
         self.sock = None
@@ -333,10 +339,11 @@ class SoccerRobot(Nao):
         self.action_queue = deque() # Priority queue for handling actions
         self.target_position = [0, 0] # The position the robot is heading towards
         self.target_rotation = [0, 0] # The rotation the robot is targeting
-        self.setup_time = math.inf # The delay before running the robot to ensure physics calculations are all done
         self.start_time = 0
         self.last_position = [0, 0]
         self.last_rotation = 0
+        self.recovery_wait_end = 0  # Delay robot actions briefly after standing up
+
 
     def connect_to_server(self, host, port):
         """Establishes a connection to the game server and sends its GPS position"""
@@ -397,6 +404,7 @@ class SoccerRobot(Nao):
                 print("Requesting information.")
             case "ROLE":
                 self.role = message_parts[1]
+                self.state = None
                 print(f'📢 Assigned Role: {self.role}')
             case "START":
                 self.create_delay(float(message_parts[1]))
@@ -420,13 +428,26 @@ class SoccerRobot(Nao):
                 print("❓ Unknown message type")
 
     def determine_action(self):
+
+        if self.role is None:
+            print("⏳ Role not assigned yet. Waiting...")
+            return
+
         """Determine what to do based on role and current game state"""
         # If the robot has fallen then ensure it is getting up first
         print(self.state, self.role)
-        if self.state == "Standing" and self.is_standup_motion_in_action():
-            pass
+        if self.state == "Standing":
+            if self.is_standup_motion_in_action():
+                # Still getting up — wait for standup motion to finish
+                return
+            else:
+                # Done getting up — reset state
+                self.state = None
+
         if self.has_fallen():
             self.play_standup_motion()
+            print("⛑️ Triggering stand-up motion")
+            self.create_delay(2.5)
             self.state = "Standing"
             return
         elif self.state == "Moving":
@@ -441,15 +462,19 @@ class SoccerRobot(Nao):
         match self.role:
             case "Goalie":
                 self.determine_goalie_action()
+                print("⚽ Running goalie logic")
             case "Striker":
-                pass
-                #self.determine_striker_action()
+                
+                self.determine_striker_action()
+                print("⚽ Running striker logic")
             case "Midfielder":
-                pass
-                #self.determine_midfielder_action()
+                #pass
+                self.determine_midfielder_action()
+                print("⚽ Running midfielder logic")
             case "Defender":
-                pass
-                #self.determine_defender_action()
+                #pass
+                self.determine_defender_action()
+                print("⚽ Running defender logic")
             case _:
                 print(f"⚠️ Role not recognized: '{self.role}' — no action taken.")
     
@@ -475,7 +500,11 @@ class SoccerRobot(Nao):
         # Move the robot in front of the ball
         ball_y_position = self.ball_position[1]
         print(ball_y_position, self.target_position[1], abs(ball_y_position - self.target_position[1]))
-        if abs(ball_y_position - self.target_position[1]) > 0.25:
+        # Only slide if not already sliding and not already near target
+        # Only set a new target if far enough from previous target (to avoid micro-jitter)
+        distance = abs(ball_y_position - self.target_position[1])
+
+        if self.state != "Sliding" and distance > 0.3:
             self.slide_to_y_position(ball_y_position, -1.5, 1.5)
 
         '''
@@ -561,6 +590,14 @@ class SoccerRobot(Nao):
 
     def determine_striker_action(self):
         """Determine what to do as the striker"""
+
+        # Prevent repeated kicking if already in Kicking state
+        if self.state == "Kicking":
+            if self.currentlyPlaying and self.currentlyPlaying.isOver():
+                self.state = None
+            return
+
+
         # If the ball moved
         if self.get_distance(self.ball_position, self.target_position) > 0.5:
             self.go_to(self.ball_position[0], self.ball_position[1])
@@ -568,7 +605,7 @@ class SoccerRobot(Nao):
         if not self.state:
             if self.get_distance(self.ball_position, self.get_position()) > 0.25:
                 self.go_to(self.ball_position[0], self.ball_position[1])
-            elif self.state != "Kicking":
+            else:
                 self.state = "Kicking"
                 self.play_kick_ball()
 
@@ -681,7 +718,12 @@ class SoccerRobot(Nao):
         report low values due to incomplete contact with the ground. This delay allows the 
         physics engine to settle the robot and ensures foot sensors register proper ground contact.
         """
-        if not self.is_motion_over() or not self.is_setup_time_over(2):
+
+        # Prevent false positives right after a stand-up motion
+        if self.getTime() < self.recovery_wait_end:
+            return False
+        
+        if not self.is_setup_time_over(2):
             return False
         
         fsv = []  # Force sensor values
@@ -785,7 +827,24 @@ class SoccerRobot(Nao):
         
         # If the motion is not playing, then play it
         if self.is_motion_over():
+            if abs(angle_difference) < math.radians(threshold):
+                if self.state == "Turning" and moveAfterTurn:
+                    self.stop_turn_and_start_moving()
+                elif self.state == "Turning":
+                    self.state = None
+                return False  # Already aligned, no motion needed
+
+            self.turn_attempts += 1
+            if self.turn_attempts > self.max_turn_attempts:
+                print("⚠️ Turn stuck — aborting and switching to Standing.")
+                self.turn_attempts = 0
+                self.state = "Standing"
+                return False
+
             self.start_motion(self.turnLeft40 if angle_difference > 0 else self.turnRight40)
+        else:
+            self.turn_attempts = 0  # Reset when already turning
+
         return True
     
     def slide_to_y_position(self, y_position, lower_y_threshold = -math.inf, upper_y_threshold = math.inf):
