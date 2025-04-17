@@ -47,13 +47,13 @@ class Team:
         return player_id in self.players
     
 class GameServer(Supervisor):
-    def __init__(self, players_limit=6):
+    def __init__(self, players_limit = 6):
         if players_limit < 2:
             print("⚠️ Minimum player size is 2.")
             players_limit = 2
         elif players_limit > 8:
             print("⚠️ Minimum player size is 8.")
-            players_limit = 12
+            players_limit = 8
         super().__init__() # Initialize as a supervisor so it has access to objects in the world
         self.players_limit = players_limit
         self.client_lock = threading.Lock()
@@ -166,17 +166,17 @@ class GameServer(Supervisor):
             self.team2.add_player(player_id)
 
         # Send previously connected robots the notice of newly connected client
-        self.broadcast(f'INFO|{team_number}|{player_id}\n')
+        self.broadcast(f'INFO|{player_id}|{team_number}\n')
 
         # Send previously connected robots to the new client
         team1 = self.team1.get_players()
         team2 = self.team2.get_players()        
         for id in team1:
             if id != player_id:
-                connection.sendall(f'INFO|1|{id}\n'.encode("utf-8"))
+                connection.sendall(f'INFO|{id}|1\n'.encode("utf-8"))
         for id in team2:
             if id != player_id:
-                connection.sendall(f'INFO|2|{id}\n'.encode("utf-8"))
+                connection.sendall(f'INFO|{id}|2\n'.encode("utf-8"))
         print(f"📢 Clients connected: {len(self.clients)}")
 
     def send_initial_states(self):
@@ -186,10 +186,10 @@ class GameServer(Supervisor):
             role = details[0]
             x_position, y_position = details[2]
             angle = details[3]
-            connection = self.clients[player]
-            connection.sendall(f'ROLE|{role}\n'.encode('utf-8'))
-            message = f'POS|{player}|{x_position}|{y_position}|{angle}\n'
-            self.broadcast(message, player)
+            state_message = f'POS|{player}|{x_position}|{y_position}|{angle}\n'
+            self.broadcast(state_message, player)
+            role_message = f'ROLE|{player}|{role}\n'
+            self.broadcast(role_message)
         # Send ball position to clients
         self.send_ball_position(True)
 
@@ -301,7 +301,7 @@ host = "127.0.0.1"
 port = 5555
 
 # Start the server in a separate thread
-game_server = GameServer(4)
+game_server = GameServer(6)
 server_thread = threading.Thread(target=game_server.start_server, args=(host, port,), daemon=True)
 server_thread.start()
 

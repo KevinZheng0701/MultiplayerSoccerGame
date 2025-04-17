@@ -5,6 +5,7 @@ import math
 from collections import deque
 
 GOALIE_X_POSITION = 4.5
+MIDFIELDER_DISTANCE = 1
 
 class Nao(Robot):
     PHALANX_MAX = 8
@@ -322,7 +323,8 @@ class Nao(Robot):
 class SoccerRobot(Nao):
     def __init__(self):
         Nao.__init__(self)
-        self.player_team = {}
+        self.my_team = set()
+        self.opponent_team = set()
         self.ball_position = [0, 0, 0]
         self.player_states = {}  # Store player positions and role status
         self.sock = None
@@ -396,13 +398,18 @@ class SoccerRobot(Nao):
             case "GET":
                 print("Requesting information.")
             case "ROLE":
-                self.role = message_parts[1]
-                print(f'📢 Assigned Role: {self.role}')
+                player_id = message_parts[1]
+                role = message_parts[2]
+                if player_id == self.player_id:
+                    self.role = role
+                    print(f'📢 Assigned Role: {self.role}')
+                else:
+                    self.player_states[player_id][0] = role
             case "START":
                 self.create_delay(float(message_parts[1]))
             case "INFO":
-                team_number = message_parts[1]
-                player_id = message_parts[2]
+                player_id = message_parts[1]
+                team_number = message_parts[2]
                 # Set player information
                 if not self.player_id:
                     self.team_number = team_number
@@ -412,9 +419,13 @@ class SoccerRobot(Nao):
                     print(f'🆔 Assigned to team {self.team_number} with Player ID: {self.player_id}')
                 else:
                     # Set up player default state
-                    self.player_states[player_id] = ["Midfielder", [0, 0], 0]
-                    self.player_team[player_id] = team_number
-                    print(f'📢 New teammate: {player_id}') if team_number == self.team_number else print(f'📢 New opponent: {player_id}')
+                    self.player_states[player_id] = [None, [0, 0], 0]
+                    if team_number == self.team_number:
+                        self.my_team.add(player_id)
+                        print(f'📢 New teammate: {player_id}')
+                    else:
+                        self.opponent_team.add(player_id)
+                        print(f'📢 New opponent: {player_id}')
             case _:
                 print(f'❓ Unknown message type: {message}')
 
@@ -436,11 +447,7 @@ class SoccerRobot(Nao):
             case "Striker":
                 self.determine_striker_action()
             case "Midfielder":
-                pass
-                #self.determine_midfielder_action()
-            case "Defender":
-                pass
-                #self.determine_defender_action()
+                self.determine_midfielder_action()
             case _:
                 print(f'⚠️ Role not recognized: {self.role}')
         if self.state == "Moving":
@@ -473,52 +480,11 @@ class SoccerRobot(Nao):
                 self.slide_to_y_position(ball_y_position, -1, 1)
             # Move the robot towards the ball
             elif self.get_distance([ball_x_position, ball_y_position], [goalie_x_axis, position[1]]) < 1:
-                self.go_to(ball_x_position, ball_y_position, 0.1)
-            '''
-            # If ball is in front of the goalie then the goalie should just kick it
-            if self.get_distance([ball_x_position, ball_y_position], [goalie_x_axis, position[1]]) < threshold:
-                self.play_kick_ball()
-                self.state = "Kicking"
-            '''
-    
-    def determine_defender_action(self):
-        """Determine what to do as the defender"""
-        my_position = self.get_position()
-        ball_position = self.ball_position
-
-        # Find opponent closest to the ball
-        opponent_ids = [
-            pid for pid in self.player_states
-            if self.player_team.get(pid) != self.team_number
-        ]
-
-        closest_opponent_id = None
-        closest_opponent_distance = float("inf")
-        for pid in opponent_ids:
-            opponent_pos = self.player_states[pid][1]
-            distance = self.get_distance(opponent_pos, [ball_position[0], ball_position[1]])
-            if distance < closest_opponent_distance:
-                closest_opponent_id = pid
-                closest_opponent_distance = distance
-
-        # Intercept: go toward opponent with the ball
-        if closest_opponent_id:
-            target = self.player_states[closest_opponent_id][1]
-            self.go_to(target[0], target[1])
-            print(f"Defender: Intercepting opponent {closest_opponent_id}.")
-
-        # Check if we're now the closest to the ball among all players
-        my_distance = self.get_distance(my_position, [ball_position[0], ball_position[1]])
-        is_closest = True
-        for pid in self.player_states:
-            other_pos = self.player_states[pid][1]
-            if self.get_distance(other_pos, [ball_position[0], ball_position[1]]) < my_distance:
-                is_closest = False
-                break
-
-        if is_closest:
-            self.role = "Striker"
-            print("Defender: Intercepted ball. Switching role to Striker.")
+                self.go_to(ball_x_position, ball_y_position, threshold)
+                # Kick the ball if the robot stopped moving
+                if not self.state:
+                    self.state = "Kicking"
+                    self.play_kick_ball()
 
     def determine_striker_action(self, threshold = 0.2, alignment_threshold = 0.8, offset = 0.35):
         """Determine what to do as the striker"""
@@ -537,6 +503,10 @@ class SoccerRobot(Nao):
         # If the dot product is close to -1 then it means the robot is behind the ball and reasonably aligned
         if dot_product < -alignment_threshold:
             self.go_to(self.ball_position[0], self.ball_position[1], 0.1)
+            # Kick the ball if the robot stopped moving
+            if not self.state:
+                self.state = "Kicking"
+                self.play_kick_ball()
         elif dot_product > alignment_threshold:
             # If the dot product is close to 1 then it means the robot is in front of the ball and must reposition
             point_one, point_two = self.get_rotated_points(ball_to_goal_direction, self.ball_position, 120)
@@ -545,53 +515,42 @@ class SoccerRobot(Nao):
             best_target = point_one if dist_one < dist_two else point_two
             self.go_to(best_target[0], best_target[1])
         else:
-            # If the robot is not along the target direction the robot should move to a position behind the ball
-            target_x = self.ball_position[0] - ball_to_goal_direction[0] * offset
-            target_y = self.ball_position[1] - ball_to_goal_direction[1] * offset
-            self.go_to(target_x, target_y, 0.1)
-        
-        
-        """elif self.state != "Kicking":
-            self.play_kick_ball()
-            self.state = "Kicking"
-        """
+            # The robot is not along the target direction so it should move to a position behind the ball
+            x_target = self.ball_position[0] - ball_to_goal_direction[0] * offset
+            y_target = self.ball_position[1] - ball_to_goal_direction[1] * offset
+            self.go_to(x_target, y_target, 0.1)
 
     def determine_midfielder_action(self):
         """Determine what to do as midfielder"""
-        my_position = self.get_position()
-        ball_position = self.ball_position
+        sections = {"negative": -MIDFIELDER_DISTANCE, "positive": MIDFIELDER_DISTANCE}
+        striker_count = 0
+        midfielder_position = None
+        # Extract the position of the striker and the other midfielder in the team
+        for player_id in self.my_team:
+            player_role, position, _ = self.player_states[player_id]
+            if player_role == "Striker":
+                striker_count += 1
+            elif player_role == "Midfielder":
+                midfielder_position = position
+        # Changes in the roles might have delay which can cause inconsistency so actions should be skipped until states are consistent
+        if striker_count != 1:
+            return
 
-        # Determine who is closest to the ball
-        teammate_ids = [pid for pid in self.player_states if self.player_team.get(pid) == self.team_number and pid != self.player_id]
-        opponent_ids = [pid for pid in self.player_states if self.player_team.get(pid) != self.team_number]
-
-        # Find closest teammate and opponent to the ball
-        closest_teammate = min(
-            teammate_ids,
-            key=lambda pid: self.get_distance(self.player_states[pid][1], [ball_position[0], ball_position[1]]),
-            default=None
-        )
-        closest_opponent = min(
-            opponent_ids,
-            key=lambda pid: self.get_distance(self.player_states[pid][1], [ball_position[0], ball_position[1]]),
-            default=None
-        )
-
-        # Compare distances to decide if our team has possession
-        dist_teammate = self.get_distance(self.player_states[closest_teammate][1], [ball_position[0], ball_position[1]]) if closest_teammate else float('inf')
-        dist_opponent = self.get_distance(self.player_states[closest_opponent][1], [ball_position[0], ball_position[1]]) if closest_opponent else float('inf')
-
-        team_has_ball = dist_teammate < dist_opponent
-
-        if team_has_ball:
-            # Offset to a good position for receiving or supporting
-            offset_x = 0.5 if self.team_number == "1" else -0.5
-            offset_y = 1.0 if my_position[1] < 0 else -1.0
-            target_x = ball_position[0] + offset_x
-            target_y = ball_position[1] + offset_y
-            self.go_to(target_x, target_y)
-            print(f"Midfielder: Repositioning near ({target_x:.2f}, {target_y:.2f}) to support play.")
-
+        x_position, y_position, _ = self.get_position()
+        ball_x_position, ball_y_position, _ = self.ball_position
+        # Section allocation depends on both midfielders when there's 4 players on each team
+        if len(self.my_team) == 4:
+            for offset in sections.values():
+                target_y_position = ball_y_position + offset
+                robot_distance = self.get_distance([ball_x_position, target_y_position], [x_position, y_position])
+                midfielder_distance = self.get_distance([ball_x_position, target_y_position], midfielder_position)
+                if robot_distance < midfielder_distance:
+                    self.go_to(ball_x_position, target_y_position)
+        else:
+            # With only one midfielder, the player should only consider the closet support position 
+            offset = min(sections.items(), key=lambda item: abs(y_position - (ball_y_position + item[1])))[1]
+            self.go_to(ball_x_position, ball_y_position + offset)
+            
     def has_fallen(self, force_threshold = 5):
         """Determines if the robot has fallen using foot pressure sensors"""
         """
