@@ -352,54 +352,76 @@ class GameServer(Supervisor):
         # Refined boundaries based on field layout
         sideline_y_limit = 2.85     # sidelines
         field_x_limit = 5.3         # total x span
-        goal_x_limit = 4.6          # approx. inside goal area
-        goal_y_limit = 0.7          # goal width from center
+        goal_area_x_min = 4.45
+        goal_area_x_max = 5.0
+        goal_area_y_min = -1.35
+        goal_area_y_max = 1.35
 
-        # ⛔ Ball is behind the net but *outside* the goal opening = out of bounds
-        if abs(ball_x) > goal_x_limit and abs(ball_y) > goal_y_limit:
-            print("⚠️ Ball went out of bounds (behind net, outside goal opening)!")
+        if goal_area_x_min <= abs(ball_x) <= goal_area_x_max and goal_area_y_min <= ball_y <= goal_area_y_max:
+            return  # Ball is inside the goal structure, no out-of-bounds or goal triggered
+
+        # Behind net but NOT within scoring area = out of bounds
+        if abs(ball_x) > goal_area_x_min and not (goal_area_y_min <= ball_y <= goal_area_y_max):
+            print("⚠️ Ball went out of bounds (behind net, outside scoring area)!")
             self.handle_out_of_bounds()
             return
 
-        # ⛔ Ball crossed sideline = out of bounds
+        # Ball crossed sideline = out of bounds
         if abs(ball_y) > sideline_y_limit or abs(ball_x) > field_x_limit:
             print("⚠️ Ball went out of bounds (sideline or endline)!")
             self.handle_out_of_bounds()
             return
 
-        # ✅ Goal detection: ball passed goal line *and* within goal width
-        if abs(ball_x) > goal_x_limit and abs(ball_y) <= goal_y_limit:
+        # Ball is fully past the goal line and within goal bounds = score
+        if abs(ball_x) > goal_area_x_min and goal_area_y_min <= ball_y <= goal_area_y_max:
             scoring_team = 2 if ball_x < 0 else 1
             print(f"🥅 Goal scored by Team {scoring_team}!")
-            # You can later call handle_goal(scoring_team)
+            # self.handle_goal(scoring_team)
 
     def handle_out_of_bounds(self):
-        """Handles out-of-bounds by placing the ball near the closest player."""
+        """Handles out-of-bounds by placing the ball near the closest non-goalie player not in the goal area."""
         ball_position = self.ball.getPosition()
         min_dist = float('inf')
-        closest_player_id = None
+        fallback_player = None
+        closest_valid_player = None
 
-        # Find the closest player to the ball
+        # Accurate goal area limits
+        goal_x_min = 4.45
+        goal_x_max = 5.0
+        goal_y_min = -1.35
+        goal_y_max = 1.35
+
         for player_id, state in self.player_states.items():
             role = state[0]
+            player_x, player_y = state[2]
+
+            # Skip goalies
             if role == "Goalie":
                 continue
-            player_x, player_y = state[2]
-            distance = self.get_distance([player_x, player_y], [ball_position[0], ball_position[1]])
-            if distance < min_dist:
-                min_dist = distance
-                closest_player_id = player_id
 
-        if closest_player_id:
-            player_pos = self.player_states[closest_player_id][2]
+            # Save a fallback just in case
+            if fallback_player is None:
+                fallback_player = player_id
 
-            # Clamp to stay inside field limits
-            new_ball_x = max(min(player_pos[0] + 0.3, 5.0), -5.0)
-            new_ball_y = max(min(player_pos[1], 2.7), -2.7)
+            # Ignore players inside goal zone
+            if not (goal_x_min <= abs(player_x) <= goal_x_max and goal_y_min <= player_y <= goal_y_max):
+                distance = self.get_distance([player_x, player_y], ball_position)
+                if distance < min_dist:
+                    min_dist = distance
+                    closest_valid_player = player_id
 
-            # Reset ball
+        # Use fallback if all players were in the goal
+        chosen_player = closest_valid_player if closest_valid_player else fallback_player
+
+        if chosen_player:
+            player_pos = self.player_states[chosen_player][2]
+
+            # Clamp spawn near field bounds, avoid corners
+            new_ball_x = max(min(player_pos[0] + 0.3, 5.1), -5.1)
+            new_ball_y = max(min(player_pos[1], 2.8), -2.8)
+
             self.ball.getField("translation").setSFVec3f([new_ball_x, new_ball_y, 0.07])
-            print(f"📦 Ball reset near Player {closest_player_id} at ({new_ball_x:.2f}, {new_ball_y:.2f})")
+            print(f"📦 Ball reset near Player {chosen_player} at ({new_ball_x:.2f}, {new_ball_y:.2f})")
 
 
 host = "127.0.0.1"
