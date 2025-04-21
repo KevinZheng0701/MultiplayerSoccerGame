@@ -343,6 +343,63 @@ class GameServer(Supervisor):
                         else:
                             print(f"📥 {player_id} is no longer closest and becomes Midfielder.", flush=True)
                         self.last_roles[player_id] = new_role
+    
+    def check_ball_events(self):
+        """Checks if the ball is out of bounds or scored a goal."""
+        ball_position = self.ball.getPosition()
+        ball_x, ball_y = ball_position[0], ball_position[1]
+
+        # Refined boundaries based on field layout
+        sideline_y_limit = 2.85     # sidelines
+        field_x_limit = 5.3         # total x span
+        goal_x_limit = 4.6          # approx. inside goal area
+        goal_y_limit = 0.7          # goal width from center
+
+        # ⛔ Ball is behind the net but *outside* the goal opening = out of bounds
+        if abs(ball_x) > goal_x_limit and abs(ball_y) > goal_y_limit:
+            print("⚠️ Ball went out of bounds (behind net, outside goal opening)!")
+            self.handle_out_of_bounds()
+            return
+
+        # ⛔ Ball crossed sideline = out of bounds
+        if abs(ball_y) > sideline_y_limit or abs(ball_x) > field_x_limit:
+            print("⚠️ Ball went out of bounds (sideline or endline)!")
+            self.handle_out_of_bounds()
+            return
+
+        # ✅ Goal detection: ball passed goal line *and* within goal width
+        if abs(ball_x) > goal_x_limit and abs(ball_y) <= goal_y_limit:
+            scoring_team = 2 if ball_x < 0 else 1
+            print(f"🥅 Goal scored by Team {scoring_team}!")
+            # You can later call handle_goal(scoring_team)
+
+    def handle_out_of_bounds(self):
+        """Handles out-of-bounds by placing the ball near the closest player."""
+        ball_position = self.ball.getPosition()
+        min_dist = float('inf')
+        closest_player_id = None
+
+        # Find the closest player to the ball
+        for player_id, state in self.player_states.items():
+            role = state[0]
+            if role == "Goalie":
+                continue
+            player_x, player_y = state[2]
+            distance = self.get_distance([player_x, player_y], [ball_position[0], ball_position[1]])
+            if distance < min_dist:
+                min_dist = distance
+                closest_player_id = player_id
+
+        if closest_player_id:
+            player_pos = self.player_states[closest_player_id][2]
+
+            # Clamp to stay inside field limits
+            new_ball_x = max(min(player_pos[0] + 0.3, 5.0), -5.0)
+            new_ball_y = max(min(player_pos[1], 2.7), -2.7)
+
+            # Reset ball
+            self.ball.getField("translation").setSFVec3f([new_ball_x, new_ball_y, 0.07])
+            print(f"📦 Ball reset near Player {closest_player_id} at ({new_ball_x:.2f}, {new_ball_y:.2f})")
 
 
 host = "127.0.0.1"
@@ -362,6 +419,8 @@ timestep = int(game_server.getBasicTimeStep())
 while game_server.step(timestep) != 1:
     if game_server.game_started:
         game_server.send_ball_position()
+        game_server.check_ball_events()
+
 
         current_time = game_server.getTime()
 
