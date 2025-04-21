@@ -65,6 +65,10 @@ class GameServer(Supervisor):
         self.ball = self.getFromDef("BALL") # Get the soccer ball in the world
         self.last_ball_position = [0, 0, 0]
         self.game_started = False
+        self.last_roles = {}
+        self.last_role_update_time = 0
+        self.role_update_interval = 0.5
+
 
     def start_server(self, host, port):
         """Starts the server and wait for connections"""
@@ -296,6 +300,50 @@ class GameServer(Supervisor):
         for id, conn in self.clients.items():
             if id != sender:
                 conn.sendall(message.encode("utf-8"))
+    
+    def update_roles_based_on_proximity(self):
+        """Update roles: assign Striker to closest player to ball per team; others become Midfielders."""
+        print("🔄 Checking for role updates based on proximity...", flush=True)
+        team_roles = {1: [], 2: []}
+
+        # Get current ball position
+        ball_position = self.ball.getPosition()
+
+        # Group players by team (excluding goalies)
+        for player_id, state in self.player_states.items():
+            role = state[0]
+            team = 1 if self.team1.has(player_id) else 2
+            if role != "Goalie":
+                position = state[2]
+                distance = self.get_distance(position, ball_position)
+                team_roles[team].append((player_id, distance))
+                print(f"🧮 {player_id} (Team {team}) is {distance:.2f} units from the ball", flush=True)
+
+        # For each team, assign closest as striker, rest as midfielders
+        for team, players in team_roles.items():
+            if not players:
+                continue
+
+            players.sort(key=lambda x: x[1])  # sort by distance to ball
+            closest_player_id = players[0][0]
+
+            for player_id, _ in players:
+                new_role = "Striker" if player_id == closest_player_id else "Midfielder"
+                current_role = self.player_states[player_id][0]
+                print(f"🔍 {player_id} current role: {current_role}, new role: {new_role}", flush=True)
+
+                if current_role != new_role:
+                    print(f"🔁 Changing {player_id} to {new_role}", flush=True)
+                    self.player_states[player_id][0] = new_role
+                    self.broadcast(f"ROLE|{player_id}|{new_role}\n")
+                    last = self.last_roles.get(player_id)
+                    if last != new_role:
+                        if new_role == "Striker":
+                            print(f"⚽ {player_id} is now the closest and becomes Striker.", flush=True)
+                        else:
+                            print(f"📥 {player_id} is no longer closest and becomes Midfielder.", flush=True)
+                        self.last_roles[player_id] = new_role
+
 
 host = "127.0.0.1"
 port = 5555
@@ -305,9 +353,18 @@ game_server = GameServer(6)
 server_thread = threading.Thread(target=game_server.start_server, args=(host, port,), daemon=True)
 server_thread.start()
 
+game_server.last_role_update_time = 0
+game_server.role_update_interval = 0.5  # seconds
+
 timestep = int(game_server.getBasicTimeStep())
 
 # Webots main loop
 while game_server.step(timestep) != 1:
     if game_server.game_started:
         game_server.send_ball_position()
+
+        current_time = game_server.getTime()
+
+        if current_time - game_server.last_role_update_time > game_server.role_update_interval:
+            game_server.update_roles_based_on_proximity()
+            game_server.last_role_update_time = current_time
