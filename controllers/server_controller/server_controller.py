@@ -382,13 +382,16 @@ class GameServer(Supervisor):
             # self.handle_goal(scoring_team)
 
     def handle_out_of_bounds(self):
-        """Handles out-of-bounds by placing the ball near the closest non-goalie player not in the goal area."""
+        """Handles out-of-bounds by placing the ball near the closest non-goalie player 
+        who is NOT inside the goal area and is still within field bounds."""
         ball_position = self.ball.getPosition()
         min_dist = float('inf')
         fallback_player = None
         closest_valid_player = None
 
-        # Accurate goal area limits
+         # field and goal area limits
+        field_x_limit = 5.3
+        field_y_limit = 2.85
         goal_x_min = 4.45
         goal_x_max = 5.0
         goal_y_min = -1.35
@@ -406,8 +409,12 @@ class GameServer(Supervisor):
             if fallback_player is None:
                 fallback_player = player_id
 
+            # Check if player is NOT inside the goal zone
+            in_goal_zone = goal_x_min <= abs(player_x) <= goal_x_max and goal_y_min <= player_y <= goal_y_max
+            in_bounds = abs(player_x) <= field_x_limit and abs(player_y) <= field_y_limit
+
             # Ignore players inside goal zone
-            if not (goal_x_min <= abs(player_x) <= goal_x_max and goal_y_min <= player_y <= goal_y_max):
+            if not in_goal_zone and in_bounds:
                 distance = self.get_distance([player_x, player_y], ball_position)
                 if distance < min_dist:
                     min_dist = distance
@@ -417,11 +424,26 @@ class GameServer(Supervisor):
         chosen_player = closest_valid_player if closest_valid_player else fallback_player
 
         if chosen_player:
+            robot = self.players[chosen_player]
+            rotation = robot.getField("rotation").getSFRotation()
+            axis, angle = rotation[:3], rotation[3]
+
+            if abs(axis[2]) > 0.9:
+                yaw = angle if axis[2] > 0 else -angle
+            else:
+                yaw = 0
+
             player_pos = self.player_states[chosen_player][2]
+            x, y = player_pos
+
+            # Offset the ball in front of the player based on their facing direction
+            offset_distance = 0.4  # distance in front of robot
+            dx = offset_distance * math.cos(yaw)
+            dy = offset_distance * math.sin(yaw)
 
             # Clamp spawn near field bounds, avoid corners
-            new_ball_x = max(min(player_pos[0] + 0.3, 5.1), -5.1)
-            new_ball_y = max(min(player_pos[1], 2.8), -2.8)
+            new_ball_x = max(min(x + dx, 5.1), -5.1)
+            new_ball_y = max(min(y + dy, 2.8), -2.8)
 
             self.ball.getField("translation").setSFVec3f([new_ball_x, new_ball_y, 0.07])
             print(f"📦 Ball reset near Player {chosen_player} at ({new_ball_x:.2f}, {new_ball_y:.2f})")
