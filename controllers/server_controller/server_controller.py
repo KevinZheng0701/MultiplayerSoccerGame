@@ -3,6 +3,7 @@ import socket
 import threading
 import uuid
 import math
+import time
 
 GOALIE_X_POSITION = 4.5  # The starting x position of the goalie robot
 ROBOT_X_POSITION = 2.5 # The starting x position of the robots
@@ -363,12 +364,14 @@ class GameServer(Supervisor):
         # Behind net but NOT within scoring area = out of bounds
         if abs(ball_x) > goal_area_x_min and not (goal_area_y_min <= ball_y <= goal_area_y_max):
             print("⚠️ Ball went out of bounds (behind net, outside scoring area)!")
+            time.sleep(1)  # Give time for position updates to arrive
             self.handle_out_of_bounds()
             return
 
         # Ball crossed sideline = out of bounds
         if abs(ball_y) > sideline_y_limit or abs(ball_x) > field_x_limit:
             print("⚠️ Ball went out of bounds (sideline or endline)!")
+            time.sleep(1)  # Give time for position updates to arrive
             self.handle_out_of_bounds()
             return
 
