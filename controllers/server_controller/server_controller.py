@@ -128,6 +128,7 @@ class GameServer(Supervisor):
                 self.broadcast(message + "\n", sender)
             case "ACK":
                 print("Acknowledgement.")
+                self.player_states[sender][1] = 'ACK'
             case "MOVE":
                 print("Moving.")
                 #position = message_parts[1]
@@ -358,8 +359,9 @@ class GameServer(Supervisor):
         goal_area_y_min = -1.35
         goal_area_y_max = 1.35
 
-        if goal_area_x_min <= abs(ball_x) <= goal_area_x_max and goal_area_y_min <= ball_y <= goal_area_y_max:
-            return  # Ball is inside the goal structure, no out-of-bounds or goal triggered
+        # Skip out-of-bounds only if ball is deep inside goal, but don't block goal scoring
+        if abs(ball_x) <= goal_area_x_min and goal_area_y_min <= ball_y <= goal_area_y_max:
+            return  # Ball is sitting inside the goal box, do nothing
 
         # Behind net but NOT within scoring area = out of bounds
         if abs(ball_x) > goal_area_x_min and not (goal_area_y_min <= ball_y <= goal_area_y_max):
@@ -379,7 +381,7 @@ class GameServer(Supervisor):
         if abs(ball_x) > goal_area_x_min and goal_area_y_min <= ball_y <= goal_area_y_max:
             scoring_team = 2 if ball_x < 0 else 1
             print(f"🥅 Goal scored by Team {scoring_team}!")
-            # self.handle_goal(scoring_team)
+            self.handle_goal(scoring_team)
 
     def handle_out_of_bounds(self):
         """Handles out-of-bounds by placing the ball near the closest non-goalie player 
@@ -447,6 +449,44 @@ class GameServer(Supervisor):
 
             self.ball.getField("translation").setSFVec3f([new_ball_x, new_ball_y, 0.07])
             print(f"📦 Ball reset near Player {chosen_player} at ({new_ball_x:.2f}, {new_ball_y:.2f})")
+
+    def handle_goal(self, scoring_team):
+        print(f"🥅 Handling goal scored by Team {scoring_team}")
+        # First, inform all robots about the goal
+        self.broadcast("GOAL|RECOVER\n")
+        time.sleep(3)
+        # Next, wait for acknowledgments from all robots to confirm they've paused motion
+        self.await_robot_acknowledgments()
+
+        # Reset positions after all acknowledgments received
+        self.reset_positions_after_goal()
+
+    def await_robot_acknowledgments(self, timeout=5):
+        print("⏳ Awaiting acknowledgments from all robots...")
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if all(state[1] == 'ACK' for state in self.player_states.values()):
+                print("✅ All robots acknowledged.")
+                return
+            time.sleep(0.1)
+        print("⚠️ Timeout waiting for robot acknowledgments.")
+
+    def reset_positions_after_goal(self):
+        print("🔄 Resetting ball and players to initial positions.")
+
+        # Reset ball position
+        self.ball.getField("translation").setSFVec3f([0, 0, 0.07])
+        self.last_ball_position = [0, 0, 0.07]
+
+        # Reset all player states and inform clients
+        self.assign_initial_team_states(self.team1)
+        self.assign_initial_team_states(self.team2)
+        self.send_initial_states()
+
+        # Reset player ACK states
+        for state in self.player_states.values():
+            state[1] = None
+
 
 
 host = "127.0.0.1"
