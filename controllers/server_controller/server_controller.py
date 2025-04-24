@@ -14,6 +14,7 @@ class Team:
         self.team_lock = threading.Lock()
         self.capacity = capacity
         self.team_number = team_number
+        self.score = 0
 
     def __len__(self):
         """Return the number of players in the team"""
@@ -45,6 +46,14 @@ class Team:
     def has(self, player_id):
         """Returns true if player is in the team else false"""
         return player_id in self.players
+    
+    def add_score(self):
+        """Add one to the score"""
+        self.score += 1
+
+    def get_score(self):
+        """Get the current score of the team"""
+        return self.score
     
 class GameServer(Supervisor):
     def __init__(self, players_limit = 6):
@@ -138,6 +147,26 @@ class GameServer(Supervisor):
                 #sender.sendall("Data".encode("utf-8"))
             case "ROBOT":
                 self.players[sender] = self.getFromDef(message_parts[2]) # Add the robot reference
+                team_number = message_parts[3]
+
+                # Send previously connected robots to the new client
+                team1 = self.team1.get_players()
+                team2 = self.team2.get_players()
+                connection = self.clients[sender]
+                for id in team1:
+                    if id != sender:
+                        connection.sendall(f'INFO|{id}|1\n'.encode("utf-8"))
+                for id in team2:
+                    if id != sender:
+                        connection.sendall(f'INFO|{id}|2\n'.encode("utf-8"))
+                
+                # Add the player to its team and send info to other clients
+                self.broadcast(f'INFO|{sender}|{team_number}\n', sender)
+                if team_number == "1":
+                    self.team1.add_player(sender)
+                else:
+                    self.team2.add_player(sender)
+
                 # If all clients joined, then start the game by first assigning initial roles
                 if len(self.players) == self.players_limit:
                     self.assign_initial_team_states(self.team1)
@@ -157,26 +186,8 @@ class GameServer(Supervisor):
         with self.client_lock:
             self.clients[player_id] = connection
 
-        # Assign client a team
-        if len(self.team1) <= len(self.team2):
-            team_number = 1
-            self.team1.add_player(player_id)
-        else:
-            team_number = 2
-            self.team2.add_player(player_id)
-
-        # Send previously connected robots the notice of newly connected client
-        self.broadcast(f'INFO|{player_id}|{team_number}\n')
-
-        # Send previously connected robots to the new client
-        team1 = self.team1.get_players()
-        team2 = self.team2.get_players()        
-        for id in team1:
-            if id != player_id:
-                connection.sendall(f'INFO|{id}|1\n'.encode("utf-8"))
-        for id in team2:
-            if id != player_id:
-                connection.sendall(f'INFO|{id}|2\n'.encode("utf-8"))
+        # Send id to the connected robot
+        connection.sendall(f'INFO|{player_id}\n'.encode("utf-8"))
         print(f"📢 Clients connected: {len(self.clients)}")
 
     def send_initial_states(self):
@@ -206,12 +217,12 @@ class GameServer(Supervisor):
 
         if len(players) >= 2:
             goalie_x_position = -GOALIE_X_POSITION if team_number == 1 else GOALIE_X_POSITION
-            self.player_states[players[1]] = ["Goalie",  None, [goalie_x_position, y_position], angle]
+            self.player_states[players[1]] = ["Goalie",  None, [goalie_x_position, y_position if team_number == 1 else -y_position], angle]
             self.apply_player_state_in_simulation(players[1])
             
             for i in range(2, len(players)):
                 y_position = self.calculate_player_y_position(i)
-                self.player_states[players[i]] = ["Midfielder", None, [x_position, y_position], angle]
+                self.player_states[players[i]] = ["Midfielder", None, [x_position, y_position if team_number == 1 else -y_position], angle]
                 self.apply_player_state_in_simulation(players[i])
 
     def get_initial_x_position_and_rotation(self, team_number):
@@ -297,6 +308,29 @@ class GameServer(Supervisor):
             if id != sender:
                 conn.sendall(message.encode("utf-8"))
 
+    def update_score(self, team_number, score):
+        """Update the score of the team"""
+        if team_number == "1":
+            game_server.setLabel(
+                0,
+                f'Red Team: {score}',
+                0, 0.01,
+                0.15,
+                0xFF0000,
+                0.0,
+                "Arial"
+            )
+        else:
+            game_server.setLabel(
+            1,
+            f'Blue Team: {score}',
+            0.725, 0.01,
+            0.15,
+            0x0000FF,
+            0.0,
+            "Arial"
+        )
+
 host = "127.0.0.1"
 port = 5555
 
@@ -306,6 +340,27 @@ server_thread = threading.Thread(target=game_server.start_server, args=(host, po
 server_thread.start()
 
 timestep = int(game_server.getBasicTimeStep())
+
+# Create the score text
+game_server.setLabel(
+    0,
+    "Red Team: 0",
+    0, 0.01,
+    0.15,
+    0xFF0000,
+    0.0,
+    "Arial"
+)
+
+game_server.setLabel(
+    1,
+    "Blue Team: 0",
+    0.725, 0.01,
+    0.15,
+    0x0000FF,
+    0.0,
+    "Arial"
+)
 
 # Webots main loop
 while game_server.step(timestep) != 1:
