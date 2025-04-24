@@ -418,16 +418,17 @@ class SoccerRobot(Nao):
                 self.create_delay(float(message_parts[1]))
             case "INFO":
                 player_id = message_parts[1]
-                team_number = message_parts[2]
                 # Set player information
                 if not self.player_id:
-                    self.team_number = team_number
                     self.player_id = player_id
                     robot_name = self.getName()
-                    self.sock.sendall(f'ROBOT|{self.player_id}|{robot_name}\n'.encode("utf-8"))
-                    print(f'🆔 Assigned to team {self.team_number} with Player ID: {self.player_id}')
+                    robot_number = robot_name.split("_")[1]
+                    self.team_number = int(robot_number) % 2 + 1
+                    self.sock.sendall(f'ROBOT|{self.player_id}|{robot_name}|{self.team_number}\n'.encode("utf-8"))
+                    print(f'🆔 Player ID: {self.player_id} is in team {self.team_number}')
                 else:
                     # Set up player default state
+                    team_number = int(message_parts[2])
                     self.player_states[player_id] = [None, [0, 0], 0]
                     if team_number == self.team_number:
                         self.my_team.add(player_id)
@@ -539,7 +540,7 @@ class SoccerRobot(Nao):
         
         # If the dot product is close to -1 then it means the robot is behind the ball and reasonably aligned
         if dot_product < -alignment_threshold:
-            self.go_to(self.ball_position[0], self.ball_position[1], 0.1)
+            self.go_to(self.ball_position[0], self.ball_position[1])
             # Kick the ball if the robot stopped moving
             if not self.state:
                 self.state = "Kicking"
@@ -555,7 +556,7 @@ class SoccerRobot(Nao):
             # The robot is not along the target direction so it should move to a position behind the ball
             x_target = self.ball_position[0] - ball_to_goal_direction[0] * offset
             y_target = self.ball_position[1] - ball_to_goal_direction[1] * offset
-            self.go_to(x_target, y_target, 0.1)
+            self.go_to(x_target, y_target)
 
     def determine_midfielder_action(self):
         """Determine what to do as midfielder"""
@@ -563,14 +564,17 @@ class SoccerRobot(Nao):
         striker_count = 0
         midfielder_position = None
         # Extract the position of the striker and the other midfielder in the team
+        print(self.my_team)
         for player_id in self.my_team:
             player_role, position, _ = self.player_states[player_id]
+            print(player_role, position)
             if player_role == "Striker":
                 striker_count += 1
             elif player_role == "Midfielder":
                 midfielder_position = position
         # Changes in the roles might have delay which can cause inconsistency so actions should be skipped until states are consistent
         if striker_count != 1:
+            print(striker_count)
             return
 
         x_position, y_position, _ = self.get_position()
@@ -633,7 +637,7 @@ class SoccerRobot(Nao):
             self.last_position = [position[0], position[1]]
             self.last_rotation = angle
 
-    def go_to(self, x_position, y_position, threshold = 0.2):
+    def go_to(self, x_position, y_position, threshold = 0.15):
         """Function to tell the robot to go a certain position"""
         self.set_target_position(x_position, y_position)
         position = self.get_position()
@@ -675,7 +679,7 @@ class SoccerRobot(Nao):
     def turn_to_direction(self, direction, threshold = 30, moveAfterTurn = False):
         """Turn the robot towards the target direction"""
         angle_difference = self.get_turn_angle(direction)
-        #print(f"Current yaw: {math.degrees(current_angle):.2f}°, Target yaw: {math.degrees(target_angle):.2f}°, Yaw diff: {abs(math.degrees(angle_difference)):.2f}°")
+        #print(f"Yaw diff: {abs(math.degrees(angle_difference)):.2f}°")
         # Positive angle indicates a left turn and negative angle indicates a right turn
         if abs(angle_difference) < math.radians(threshold):
             if moveAfterTurn:
