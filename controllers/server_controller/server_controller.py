@@ -137,7 +137,8 @@ class GameServer(Supervisor):
                 self.broadcast(message + "\n", sender)
             case "ACK":
                 print("Acknowledgement.")
-                self.player_states[sender][1] = 'ACK'
+                if sender in self.player_states:
+                    self.player_states[sender][1] = 'ACK'
             case "MOVE":
                 print("Moving.")
                 #position = message_parts[1]
@@ -463,23 +464,40 @@ class GameServer(Supervisor):
 
     def handle_goal(self, scoring_team):
         print(f"🥅 Handling goal scored by Team {scoring_team}")
-        # First, inform all robots about the goal
+
+        # Inform robots to start recovery motion
         self.broadcast("GOAL|RECOVER\n")
-        time.sleep(3)
-        # Next, wait for acknowledgments from all robots to confirm they've paused motion
+        for player_id in self.player_states:
+            self.player_states[player_id][1] = 'WAITING'
+
+        # TELEPORT robots to sideline
+        self.teleport_robots_to_sideline()
+
+        # Let Webots physics engine stabilize robots at sideline
+        stabilization_steps = int(1.5 / (self.getBasicTimeStep() / 1000.0))  # 1.5 seconds worth of steps
+        print(f"⏳ Stabilizing robots at sideline with {stabilization_steps} steps...")
+        for _ in range(stabilization_steps):
+            self.step(int(self.getBasicTimeStep()))
+
+        # THEN wait for acknowledgments
         self.await_robot_acknowledgments()
 
-        # Reset positions after all acknowledgments received
+        # Reset ball and player starting positions
         self.reset_positions_after_goal()
 
-    def await_robot_acknowledgments(self, timeout=5):
+        # Resume play
+        self.broadcast("GOAL|RESET\n")
+        for player_id in self.player_states:
+            self.player_states[player_id][1] = None
+
+    def await_robot_acknowledgments(self, timeout=15):
         print("⏳ Awaiting acknowledgments from all robots...")
         start_time = time.time()
         while time.time() - start_time < timeout:
             if all(state[1] == 'ACK' for state in self.player_states.values()):
-                print("✅ All robots acknowledged.")
+                print("✅ All robots acknowledged recovery.")
                 return
-            time.sleep(0.1)
+            time.sleep(0.05)
         print("⚠️ Timeout waiting for robot acknowledgments.")
 
     def reset_positions_after_goal(self):
@@ -494,16 +512,19 @@ class GameServer(Supervisor):
         self.assign_initial_team_states(self.team2)
         self.send_initial_states()
 
+        stabilization_steps = int(1.0 / (self.getBasicTimeStep() / 1000.0))  # 1 second worth of steps
+        print(f"⏳ Stabilizing robots after reset with {stabilization_steps} steps...")
+        for _ in range(stabilization_steps):
+            self.step(int(self.getBasicTimeStep()))
+
         # Reset player ACK states
         for state in self.player_states.values():
             state[1] = None
 
-
-
     def update_score(self, team_number, score):
         """Update the score of the team"""
         if team_number == "1":
-            game_server.setLabel(
+            self.setLabel(
                 0,
                 f'Red Team: {score}',
                 0, 0.01,
@@ -513,7 +534,7 @@ class GameServer(Supervisor):
                 "Arial"
             )
         else:
-            game_server.setLabel(
+            self.setLabel(
             1,
             f'Blue Team: {score}',
             0.725, 0.01,
@@ -522,6 +543,21 @@ class GameServer(Supervisor):
             0.0,
             "Arial"
         )
+            
+    def teleport_robots_to_sideline(self):
+        print("🚧 Teleporting robots to sideline for recovery.")
+        y_sideline = -2.85
+        spacing = 1.0  # spacing between players on sideline
+        x_start = -2.5
+        for i, player_id in enumerate(self.players):
+            robot = self.players[player_id]
+            x = x_start + spacing * i
+            translation_field = robot.getField("translation")
+            translation_field.setSFVec3f([x, y_sideline, ROBOT_Z_POSITION])
+
+            rotation_field = robot.getField("rotation")
+            rotation_field.setSFRotation([0, 0, 1, 0])  # facing forward
+
 
 host = "127.0.0.1"
 port = 5555
