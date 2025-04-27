@@ -403,6 +403,12 @@ class SoccerRobot(Nao):
                     self.recovery_ack_sent = False
                     self.state = None
                     self.stop_motion()
+                elif len(message_parts) > 1 and message_parts[1] == "RECOVER_AFTER_RESET":
+                    print("🔧 Recovery phase after resetting to start positions. Preparing to recover.")
+                    self.recovery_mode = True
+                    self.recovery_ack_sent = False
+                    self.state = None
+                    self.stop_motion()
                 elif len(message_parts) > 1 and message_parts[1] == "RESET":
                     print("🔄 Goal reset phase. Resuming normal play.")
                     self.recovery_mode = False
@@ -866,6 +872,20 @@ class SoccerRobot(Nao):
                 self.step(self.timeStep)
             return  # Keep sidestepping
 
+         # Add stabilization after sideline teleport
+        if not hasattr(self, "stabilization_done"):
+            self.stabilization_done = False
+            self.stabilization_start_time = self.getTime()
+
+        if not self.stabilization_done:
+            stabilization_duration = 1.0  # 1 second to let physics settle
+            if self.getTime() - self.stabilization_start_time < stabilization_duration:
+                self.step(self.timeStep)
+                return
+            else:
+                self.stabilization_done = True
+                print("🛠 Stabilization at sideline complete. Now playing stand-up motion.")
+
         # Step 2: Play recovery motion if not already playing
         if not self.currentlyPlaying:
             print("🔧 Playing stand-up recovery motion...")
@@ -883,6 +903,10 @@ class SoccerRobot(Nao):
             self.send_ack()
             self.recovery_ack_sent = True
             self.recovery_mode = False  # Done recovering
+            # 🧹 Clean up the flag
+            if hasattr(self, "stabilization_done"):
+                del self.stabilization_done
+                del self.stabilization_start_time
 
 host = "127.0.0.1"
 port = 5555

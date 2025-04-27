@@ -503,6 +503,14 @@ class GameServer(Supervisor):
         # Reset ball and player starting positions
         self.reset_positions_after_goal()
 
+        # Send second recover command
+        self.broadcast("GOAL|RECOVER_AFTER_RESET\n")
+        for player_id in self.player_states:
+            self.player_states[player_id][1] = 'WAITING'
+
+        # Wait for ACKs again
+        self.await_robot_acknowledgments()
+
         # Resume play
         self.broadcast("GOAL|RESET\n")
         for player_id in self.player_states:
