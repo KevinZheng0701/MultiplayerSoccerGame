@@ -129,12 +129,15 @@ class GameServer(Supervisor):
         sender = message_parts[1]
         match message_type:
             case "POS":
-                # Update the position of the client and broadcast it to every other clients
+                player_id = message_parts[1]
                 x_position, y_position = float(message_parts[2]), float(message_parts[3])
                 angle = float(message_parts[4])
-                self.update_position(sender, x_position, y_position)
-                self.update_rotation(sender, angle)
-                self.broadcast(message + "\n", sender)
+                # 🛡️ Update only if we know about this player
+                if player_id in self.player_states:
+                    self.update_position(player_id, x_position, y_position)
+                    self.update_rotation(player_id, angle)
+                else:
+                    print(f"⚠️ Unknown player {player_id} received. Ignoring POS update.")
             case "ACK":
                 print("Acknowledgement.")
                 if sender in self.player_states:
@@ -199,16 +202,15 @@ class GameServer(Supervisor):
 
     def send_initial_states(self):
         """Broadcasts the initial state of the game(players and ball)"""
-        # Send the role and starting information to all the clients
         for player, details in self.player_states.items():
             role = details[0]
             x_position, y_position = details[2]
             angle = details[3]
-            state_message = f'POS|{player}|{x_position}|{y_position}|{angle}\n'
+            state = details[4] if len(details) > 4 else "Idle"
+            state_message = f'POS|{player}|{x_position}|{y_position}|{angle}|{state}\n'
             self.broadcast(state_message, player)
             role_message = f'ROLE|{player}|{role}\n'
             self.broadcast(role_message)
-        # Send ball position to clients
         self.send_ball_position(True)
 
     def assign_initial_team_states(self, team):
@@ -296,6 +298,13 @@ class GameServer(Supervisor):
     def update_rotation(self, player_id, angle):
         """Updates the rotation of the player"""
         self.player_states[player_id][3] = angle
+
+    def update_state(self, player_id, state):
+        """Updates the state of the player"""
+        if player_id in self.player_states:
+            self.player_states[player_id][4] = state
+        else:
+            print(f"⚠️ Tried to update state for unknown player {player_id}")
 
     def remove_client(self, connection):
         """Removes disconnected clients"""

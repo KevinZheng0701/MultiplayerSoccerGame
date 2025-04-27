@@ -638,16 +638,18 @@ class SoccerRobot(Nao):
         return False
     
     def send_player_state(self, force = False):
-        """Sends position and rotation changes to the server"""
+        """Sends position, rotation, and state to the server"""
         if not self.sock:
             return  # 🛡️ No connection yet, skip sending
 
         position, angle = self.get_position(), self.get_rotation()[2]
         if force or self.get_distance(position, self.last_position) > 0.25 or abs(self.calculate_angle_difference(angle, self.last_rotation)) > math.radians(10):
             try:
-                self.sock.sendall(f'POS|{self.player_id}|{position[0]:.3f}|{position[1]:.3f}|{angle:.3f}\n'.encode("utf-8"))
+                state_to_send = self.state if self.state else "Idle"
+                self.sock.sendall(f'POS|{self.player_id}|{position[0]:.3f}|{position[1]:.3f}|{angle:.3f}|{state_to_send}\n'.encode("utf-8"))
                 self.last_position = [position[0], position[1]]
                 self.last_rotation = angle
+                print(f"📤 Sending POS: player_id={self.player_id}, position=({position[0]:.3f}, {position[1]:.3f}), angle={angle:.3f}, state={state_to_send}")
             except OSError:
                 print("⚠️ Socket error when sending player state. Skipping.")
 
