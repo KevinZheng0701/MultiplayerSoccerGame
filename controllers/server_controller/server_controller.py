@@ -392,7 +392,8 @@ class GameServer(Supervisor):
         # Ball is fully past the goal line and within goal bounds = score
         if abs(ball_x) > goal_area_x_min and goal_area_y_min <= ball_y <= goal_area_y_max:
             scoring_team = 2 if ball_x < 0 else 1
-            print(f"🥅 Goal scored by Team {scoring_team}!")
+            team_color = "Red" if scoring_team == 1 else "Blue"
+            print(f"🥅 Goal scored by Team {scoring_team} ({team_color})!")
             self.handle_goal(scoring_team)
 
     def handle_out_of_bounds(self):
@@ -465,6 +466,14 @@ class GameServer(Supervisor):
     def handle_goal(self, scoring_team):
         print(f"🥅 Handling goal scored by Team {scoring_team}")
 
+        # Update the team's score
+        if scoring_team == 1:
+            self.team1.add_score()
+            self.update_score("1", self.team1.get_score())
+        else:
+            self.team2.add_score()
+            self.update_score("2", self.team2.get_score())
+
         # Inform robots to start recovery motion
         self.broadcast("GOAL|RECOVER\n")
         for player_id in self.player_states:
@@ -506,16 +515,18 @@ class GameServer(Supervisor):
         # Reset ball position
         self.ball.getField("translation").setSFVec3f([0, 0, 0.07])
         self.last_ball_position = [0, 0, 0.07]
+        self.send_ball_position(force=True)
 
         # Reset all player states and inform clients
         self.assign_initial_team_states(self.team1)
         self.assign_initial_team_states(self.team2)
-        self.send_initial_states()
 
         stabilization_steps = int(1.0 / (self.getBasicTimeStep() / 1000.0))  # 1 second worth of steps
         print(f"⏳ Stabilizing robots after reset with {stabilization_steps} steps...")
         for _ in range(stabilization_steps):
             self.step(int(self.getBasicTimeStep()))
+
+        self.send_initial_states()
 
         # Reset player ACK states
         for state in self.player_states.values():
