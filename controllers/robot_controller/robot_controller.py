@@ -518,12 +518,12 @@ class SoccerRobot(Nao):
         ball_x_position, ball_y_position, _ = self.ball_position
         if abs(ball_x_position - position[0]) < 4:
             # Goalie should be facing towards the other team goal
-            target_direction = [1, 0] if self.team_number == "1" else [-1, 0]
+            target_direction = [1, 0] if self.team_number == 1 else [-1, 0]
             if self.turn_to_direction(target_direction, 20):
                 return
 
             # If the robot is in front of the ball, the robot should move back
-            goalie_x_axis = -GOALIE_X_POSITION if self.team_number == "1" else GOALIE_X_POSITION
+            goalie_x_axis = -GOALIE_X_POSITION if self.team_number == 1 else GOALIE_X_POSITION
             if not self.is_ball_ahead(ball_x_position, position[0], 0.1):
                 self.target_position[0] = goalie_x_axis
                 self.state = "Backing"
@@ -546,7 +546,7 @@ class SoccerRobot(Nao):
             return
         
         # Find the direction from the ball to the goal and the ball to the robot
-        target_goal = GOALIE_X_POSITION if self.team_number == "1" else -GOALIE_X_POSITION
+        target_goal = GOALIE_X_POSITION if self.team_number == 1 else -GOALIE_X_POSITION
         x_position, y_position, _ = self.get_position()
         ball_to_goal_direction = self.normalize_vector([target_goal - self.ball_position[0], -self.ball_position[1]])
         ball_to_robot_direction = self.normalize_vector([x_position - self.ball_position[0], y_position - self.ball_position[1]])
@@ -715,9 +715,7 @@ class SoccerRobot(Nao):
     
     def slide_to_y_position(self, y_position, lower_y_threshold = -math.inf, upper_y_threshold = math.inf):
         """Slide the robot to a certain y position"""
-        # Clamp the target position
-        clamped_pos = max(lower_y_threshold, min(upper_y_threshold, y_position))
-        self.target_position[1] = clamped_pos
+        self.target_position[1] = y_position
         self.state = "Sliding"
 
     def side_step_to_position(self, y_position, threshold = 0.1):
@@ -730,7 +728,7 @@ class SoccerRobot(Nao):
             return
         
         # Move the robot
-        if self.team_number == "1":
+        if self.team_number == 1:
             motion = self.sideStepLeft if difference > 0 else self.sideStepRight
         else:
             motion = self.sideStepRight if difference > 0 else self.sideStepLeft
@@ -746,7 +744,7 @@ class SoccerRobot(Nao):
 
     def is_ball_ahead(self, ball_x, robot_x, min_distance = 0.15):
         """Determine whether the ball is in front of behind the player using the x coordinate value"""
-        return ball_x - robot_x > min_distance if self.team_number == "1" else robot_x - ball_x > min_distance
+        return ball_x - robot_x > min_distance if self.team_number == 1 else robot_x - ball_x > min_distance
 
     def normalize_vector(self, vector):
         """Normalizes a vector"""
