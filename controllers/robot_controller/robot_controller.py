@@ -2,7 +2,6 @@ from controller import Robot, Motion
 import socket
 import threading
 import math
-from collections import deque
 
 GOALIE_X_POSITION = 4.5
 MIDFIELDER_DISTANCE = 1
@@ -328,19 +327,18 @@ class SoccerRobot(Nao):
         self.ball_position = [0, 0, 0]
         self.player_states = {}  # Store player positions and role status
         self.sock = None
-        self.team_number = 0
-        self.player_id = 0
+        self.team_number = None
+        self.player_id = None
         self.state = None
         self.role = None
-        self.action_queue = deque() # Priority queue for handling actions
         self.target_position = [0, 0] # The position the robot is heading towards
         self.target_rotation = [0, 0] # The rotation the robot is targeting
-        self.setup_time = math.inf # The delay before running the robot to ensure physics calculations are all done
         self.start_time = 0
+        self.setup_time = math.inf # The delay before running the robot to ensure physics calculations are all done
+        self.last_state = None
         self.last_position = [0, 0]
         self.last_rotation = 0
         self.recovery_mode = False
-        self.recovery_ack_sent = False
 
     def connect_to_server(self, host, port):
         """Establishes a connection to the game server and sends its GPS position"""
@@ -378,48 +376,22 @@ class SoccerRobot(Nao):
         message_parts = message.split("|")
         message_type = message_parts[0]
         match message_type:
-            case "POS":
+            case "STATE":
                 player_id = message_parts[1]
-                x_position, y_position = float(message_parts[2]), float(message_parts[3])
-                angle = float(message_parts[4])
+                state = message_parts[2]
+                x_position, y_position = float(message_parts[3]), float(message_parts[4])
+                angle = float(message_parts[5])
                 # Update the position and rotation of the players
                 if player_id == self.player_id:
-                    print("🔄 My position reset after goal. Resuming play.")
+                    print("🔄 Reset robot position")
                     self.state = None  # Resume normal behavior
                 else:
+                    self.update_state(player_id, state)
                     self.update_position(player_id, x_position, y_position)
                     self.update_rotation(player_id, angle)
             case "BALL":
                 x_position, y_position, z_position = float(message_parts[1]), float(message_parts[2]), float(message_parts[3])
                 self.update_ball_position(x_position, y_position, z_position)
-            case "ACK":
-                print("Acknowledgement.")
-            case "MOVE":
-                print("Moving.")
-            case "GOAL":
-                if len(message_parts) > 1 and message_parts[1] == "RECOVER":
-                    print("🔧 Goal recovery phase. Preparing to recover after teleport.")
-                    self.recovery_mode = True
-                    self.recovery_ack_sent = False
-                    self.state = None
-                    self.stop_motion()
-                elif len(message_parts) > 1 and message_parts[1] == "RECOVER_AFTER_RESET":
-                    print("🔧 Recovery phase after resetting to start positions. Preparing to recover.")
-                    self.recovery_mode = True
-                    self.recovery_ack_sent = False
-                    self.state = None
-                    self.stop_motion()
-                elif len(message_parts) > 1 and message_parts[1] == "RESET":
-                    print("🔄 Goal reset phase. Resuming normal play.")
-                    self.recovery_mode = False
-                    self.recovery_ack_sent = False
-                    self.state = None
-                else:
-                    print("🥅 Goal detected.")
-            case "KICK":
-                print("Ball kick.")
-            case "GET":
-                print("Requesting information.")
             case "ROLE":
                 player_id = message_parts[1]
                 role = message_parts[2]
@@ -428,8 +400,8 @@ class SoccerRobot(Nao):
                     print(f'📢 Assigned Role: {self.role}')
                 else:
                     self.player_states[player_id][0] = role
-            case "START":
-                self.create_delay(float(message_parts[1]))
+            case "GOAL":
+                self.recovery_mode = True
             case "INFO":
                 player_id = message_parts[1]
                 # Set player information
@@ -443,49 +415,24 @@ class SoccerRobot(Nao):
                 else:
                     # Set up player default state
                     team_number = int(message_parts[2])
-                    self.player_states[player_id] = [None, [0, 0], 0]
+                    self.player_states[player_id] = [None, "None", [0, 0], 0]
                     if team_number == self.team_number:
                         self.my_team.add(player_id)
                         print(f'📢 New teammate: {player_id}')
                     else:
                         self.opponent_team.add(player_id)
                         print(f'📢 New opponent: {player_id}')
+            case "START":
+                self.create_delay(float(message_parts[1]))
             case _:
                 print(f'❓ Unknown message type: {message}')
-
-    def wait_and_ack(self):
-        while not self.is_motion_over():
-            self.step(self.timeStep)
-        print("✅ Motion complete. Sending ACK to server.")
-        self.sock.sendall(f"ACK|{self.player_id}\n".encode("utf-8"))
-
-    def recover_and_ack(self):
-        # Step 1: Move to sideline
-        _, y, _ = self.get_position()
-        target_y = 2.5 if y < 0 else -2.5
-        self.set_target_position(self.get_position()[0], target_y)
-
-        # Walk sideways to sideline
-        while abs(self.get_position()[1] - target_y) > 0.1:
-            self.side_step_to_position(target_y)
-            while not self.is_motion_over():
-                self.step(self.timeStep)
-
-        # Step 2: Play stand-up motion (stabilize)
-        self.start_motion(self.standupFromBack)
-        while not self.is_motion_over():
-            self.step(self.timeStep)
-
-        # Step 3: Send ACK
-        print("✅ Recovery complete. Sending ACK to server.")
-        self.sock.sendall(f"ACK|{self.player_id}\n".encode("utf-8"))
-
 
     def determine_action(self):
         """Determine what to do based on role and current game state"""
         if not self.is_motion_over():
             return
-        print(self.state, self.role)
+        if self.state:
+            print(self.state, self.role)
         # If the robot has fallen then ensure it is getting up first
         if self.has_fallen():
             self.play_standup_motion()
@@ -493,6 +440,12 @@ class SoccerRobot(Nao):
             return
         if self.state == "Recovering" or self.state == "Kicking":
             self.state = None
+        if self.recovery_mode:
+            # Once in recovery mode and stable, send acknowledge to server
+            self.setup_time = math.inf
+            self.sock.sendall(f'ACK|{self.player_id}\n'.encode("utf-8"))
+            self.recovery_mode = False
+            return
         match self.role:
             case "Goalie":
                 self.determine_goalie_action()
@@ -578,10 +531,9 @@ class SoccerRobot(Nao):
         striker_count = 0
         midfielder_position = None
         # Extract the position of the striker and the other midfielder in the team
-        print(self.my_team)
         for player_id in self.my_team:
-            player_role, position, _ = self.player_states[player_id]
-            print(player_role, position)
+            player_role = self.player_states[player_id][0]
+            position = self.player_states[player_id][2]
             if player_role == "Striker":
                 striker_count += 1
             elif player_role == "Midfielder":
@@ -614,7 +566,7 @@ class SoccerRobot(Nao):
         report low values due to incomplete contact with the ground. This delay allows the 
         physics engine to settle the robot and ensures foot sensors register proper ground contact.
         """
-        if not self.is_motion_over() or not self.is_setup_time_over(2):
+        if not self.is_motion_over() or not self.is_setup_time_over():
             return False
         
         fsv = []  # Force sensor values
@@ -645,19 +597,13 @@ class SoccerRobot(Nao):
     
     def send_player_state(self, force = False):
         """Sends position, rotation, and state to the server"""
-        if not self.sock:
-            return  # 🛡️ No connection yet, skip sending
-
         position, angle = self.get_position(), self.get_rotation()[2]
-        if force or self.get_distance(position, self.last_position) > 0.25 or abs(self.calculate_angle_difference(angle, self.last_rotation)) > math.radians(10):
-            try:
-                state_to_send = self.state if self.state else "Idle"
-                self.sock.sendall(f'POS|{self.player_id}|{position[0]:.3f}|{position[1]:.3f}|{angle:.3f}|{state_to_send}\n'.encode("utf-8"))
-                self.last_position = [position[0], position[1]]
-                self.last_rotation = angle
-                print(f"📤 Sending POS: player_id={self.player_id}, position=({position[0]:.3f}, {position[1]:.3f}), angle={angle:.3f}, state={state_to_send}")
-            except OSError:
-                print("⚠️ Socket error when sending player state. Skipping.")
+        if force or self.get_distance(position, self.last_position) > 0.25 or abs(self.calculate_angle_difference(angle, self.last_rotation)) > math.radians(10) or self.state != self.last_state:
+            state = self.state if self.state else "Idle"
+            self.sock.sendall(f'STATE|{self.player_id}|{state}|{position[0]:.3f}|{position[1]:.3f}|{angle:.3f}\n'.encode("utf-8"))
+            self.last_position = [position[0], position[1]]
+            self.last_rotation = angle
+            self.last_state = self.state
 
     def go_to(self, x_position, y_position, threshold = 0.15):
         """Function to tell the robot to go a certain position"""
@@ -715,7 +661,8 @@ class SoccerRobot(Nao):
     
     def slide_to_y_position(self, y_position, lower_y_threshold = -math.inf, upper_y_threshold = math.inf):
         """Slide the robot to a certain y position"""
-        self.target_position[1] = y_position
+        clamped_pos = max(lower_y_threshold, min(upper_y_threshold, y_position))
+        self.target_position[1] = clamped_pos
         self.state = "Sliding"
 
     def side_step_to_position(self, y_position, threshold = 0.1):
@@ -772,7 +719,7 @@ class SoccerRobot(Nao):
         x, y = vector
         return [x * cos_a - y * sin_a, x * sin_a + y * cos_a]
 
-    def get_rotated_points(self, direction, origin_point, angle_degree, distance=0.5):
+    def get_rotated_points(self, direction, origin_point, angle_degree, distance = 0.5):
         """Returns two points rotated from the given direction vector by angle_deg offset from the origin_point by the specified distance"""
         # Rotate direction vector by ±angle
         radians = math.radians(angle_degree)
@@ -803,13 +750,17 @@ class SoccerRobot(Nao):
         position = self.get_position()
         return self.get_distance(position, self.ball_position)
 
+    def update_state(self, player_id, state):
+        """Updates the state of the player"""
+        self.player_states[player_id][1] = state
+    
     def update_position(self, player, x, y):
         """Update the position of the player"""
-        self.player_states[player][1] = [x, y]
+        self.player_states[player][2] = [x, y]
 
     def update_rotation(self, player, angle):
         """Update the rotation of the player"""
-        self.player_states[player][2] = angle
+        self.player_states[player][3] = angle
 
     def update_ball_position(self, x, y, z):
         """Update the position of the ball"""
@@ -820,92 +771,16 @@ class SoccerRobot(Nao):
     def create_delay(self, duration):
         """Creates a delay for physics related simulation"""
         self.start_time = self.getTime()
-        self.setup_time = duration + self.start_time
+        self.setup_time = duration
 
-    def is_setup_time_over(self, multiplier = 1):
-        """Returns True if the setup time has passed"""
-        return self.getTime() >= self.start_time + self.setup_time * multiplier
+    def is_setup_time_over(self):
+        """Returns true if the setup time has passed"""
+        return self.getTime() >= self.start_time + self.setup_time
 
     def is_motion_over(self):
         """Returns whether the current motion finish playing"""
         return not self.currentlyPlaying or self.currentlyPlaying.isOver()
-
-    def perform_recovery_motion(self):
-        """Play stand up motion and send ACK after."""
-        self.play_motion('standupFromBack')  # or whatever stand motion you have
-        time.sleep(2)  # Wait a little extra to ensure stability
-        self.send_ack()
-        self.recovery_ack_sent = True
-        self.recovery_mode = False
     
-    def send_ack(self):
-        if self.sock:
-            try:
-                self.sock.sendall(f'ACK|{self.player_id}\n'.encode("utf-8"))
-                print("✅ Motion complete. Sending ACK to server.")
-            except:
-                print("⚠️ Socket error when sending ACK.")
-    
-    def play_recovery_and_ack(self):
-        """Plays stand-up motion and ACKs when finished."""
-        self.play_standup_motion()
-        while not self.is_motion_over():
-            self.step(self.timeStep)
-        print("✅ Recovery motion complete. Sending ACK to server.")
-        self.send_ack()
-
-    def check_and_ack_recovery(self):
-        """Handles sideline walk, stand-up recovery motion, and sends ACK after finishing."""
-        if not self.recovery_mode:
-            return
-
-        # Step 1: Move to sideline
-        _, y_current, _ = self.get_position()
-        target_y = 2.5 if y_current < 0 else -2.5
-
-        if abs(y_current - target_y) > 0.1:
-            # Still need to side step to the sideline
-            self.side_step_to_position(target_y)
-            if not self.is_motion_over():
-                self.step(self.timeStep)
-            return  # Keep sidestepping
-
-         # Add stabilization after sideline teleport
-        if not hasattr(self, "stabilization_done"):
-            self.stabilization_done = False
-            self.stabilization_start_time = self.getTime()
-
-        if not self.stabilization_done:
-            stabilization_duration = 1.0  # 1 second to let physics settle
-            if self.getTime() - self.stabilization_start_time < stabilization_duration:
-                self.step(self.timeStep)
-                return
-            else:
-                self.stabilization_done = True
-                print("🛠 Stabilization at sideline complete. Now playing stand-up motion.")
-
-        # Step 2: Play recovery motion if not already playing
-        if not self.currentlyPlaying:
-            print("🔧 Playing stand-up recovery motion...")
-            self.start_motion(self.standupFromBack)
-            return
-
-        # Step 3: Wait until motion finishes
-        if not self.is_motion_over():
-            self.step(self.timeStep)
-            return
-
-        # Step 4: Send ACK after finishing motion
-        if not self.recovery_ack_sent:
-            print("✅ Recovery motion complete. Sending ACK to server.")
-            self.send_ack()
-            self.recovery_ack_sent = True
-            self.recovery_mode = False  # Done recovering
-            # 🧹 Clean up the flag
-            if hasattr(self, "stabilization_done"):
-                del self.stabilization_done
-                del self.stabilization_start_time
-
 host = "127.0.0.1"
 port = 5555
 
@@ -922,4 +797,3 @@ while soccer_robot.step(timeStep) != -1:
     if soccer_robot.is_setup_time_over():
         soccer_robot.determine_action()
         soccer_robot.send_player_state()
-        soccer_robot.check_and_ack_recovery()

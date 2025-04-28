@@ -3,12 +3,24 @@ import socket
 import threading
 import uuid
 import math
-import time
 
 GOALIE_X_POSITION = 4.5  # The starting x position of the goalie robot
 ROBOT_X_POSITION = 2.5 # The starting x position of the robots
 ROBOT_Z_POSITION = 0.333 # The starting z position of the robots represents the height
 
+FIELD_X_BOUND = 4.5 # The largest x value the ball can be within
+FIELD_Y_BOUND = 3.0 # The largest y value the ball can be within
+
+# Defines the bounds on the goal area
+LOWER_GOAL_AREA_X = 4.5 # The lower bound on the x value of the goal area
+UPPER_GOAL_AREA_X = 5.0 # The upper bound on the x value of the goal area
+LOWER_GOAL_AREA_Y = -1.2 # The lower bound on the y value of the goal area
+UPPER_GOAL_AREA_Y = 1.2 # The upper bound on the y value of the goal area
+
+OFFSET_DISTANCE = 0.3 # The distance in front of robot
+
+INIT_BALL_POS = [0, 0, 0.07] # The starting position of the ball
+ 
 class Team:
     def __init__(self, team_number = 0, capacity = 0):
         self.players = set()
@@ -73,12 +85,9 @@ class GameServer(Supervisor):
         self.player_states = {}  # Store player game stats
         self.players = {} # Store the reference to the robots
         self.ball = self.getFromDef("BALL") # Get the soccer ball in the world
-        self.last_ball_position = [0, 0, 0]
+        self.last_ball_position = INIT_BALL_POS
         self.game_started = False
-        self.last_roles = {}
-        self.last_role_update_time = 0
-        self.role_update_interval = 0.5
-
+        self.ack_count = 0
 
     def start_server(self, host, port):
         """Starts the server and wait for connections"""
@@ -128,33 +137,23 @@ class GameServer(Supervisor):
         message_type = message_parts[0]
         sender = message_parts[1]
         match message_type:
-            case "POS":
+            case "STATE":
                 player_id = message_parts[1]
-                x_position, y_position = float(message_parts[2]), float(message_parts[3])
-                angle = float(message_parts[4])
-                # 🛡️ Update only if we know about this player
+                state = message_parts[2]
+                x_position, y_position = float(message_parts[3]), float(message_parts[4])
+                angle = float(message_parts[5])
+                # Update only if we know about this player
                 if player_id in self.player_states:
                     self.update_position(player_id, x_position, y_position)
                     self.update_rotation(player_id, angle)
+                    self.update_state(player_id, state)
                 else:
                     print(f"⚠️ Unknown player {player_id} received. Ignoring POS update.")
             case "ACK":
-                print("Acknowledgement.")
-                if sender in self.player_states:
-                    self.player_states[sender][1] = 'ACK'
-            case "MOVE":
-                print("Moving.")
-                #position = message_parts[1]
-                #broadcast(f"MOVE|{sender}|{position}", sender)
-            case "GOAL":
-                print("Scored a goal.")
-                #broadcast(f"GOAL|{sender}")
-            case "KICK":
-                print("Ball kick.")
-                #broadcast(f"KICK|{sender}")
-            case "GET":
-                print("Requesting information.")
-                #sender.sendall("Data".encode("utf-8"))
+                self.ack_count += 1
+                if self.ack_count == self.players_limit:
+                    self.reset_game()
+                    self.ack_count = 0
             case "ROBOT":
                 self.players[sender] = self.getFromDef(message_parts[2]) # Add the robot reference
                 team_number = message_parts[3]
@@ -204,10 +203,10 @@ class GameServer(Supervisor):
         """Broadcasts the initial state of the game(players and ball)"""
         for player, details in self.player_states.items():
             role = details[0]
+            state = details[1]
             x_position, y_position = details[2]
             angle = details[3]
-            state = details[4] if len(details) > 4 else "Idle"
-            state_message = f'POS|{player}|{x_position}|{y_position}|{angle}|{state}\n'
+            state_message = f'STATE|{player}|{state}|{x_position}|{y_position}|{angle}\n'
             self.broadcast(state_message, player)
             role_message = f'ROLE|{player}|{role}\n'
             self.broadcast(role_message)
@@ -264,8 +263,8 @@ class GameServer(Supervisor):
 
     def start_game(self):
         """Sends a start message to the players"""
-        self.broadcast(f'START|1\n')
         self.game_started = True
+        self.broadcast(f'START|1\n')
 
     def is_player_near_ball(self, player_id, threshold = 0.5):
         """Checks if the player is close enough to the ball"""
@@ -274,8 +273,8 @@ class GameServer(Supervisor):
    
     def player_distance_to_ball(self, player_id):
         """Calculates the Euclidean distance from a player to the ball"""
-        player_state = self.player_states[player_id]
-        x_position, y_position = player_state[2], player_state[3]
+        player_position = self.player_states[player_id][2]
+        x_position, y_position = player_position[0], player_position[1]
         ball_position = self.ball.getPosition()
         return self.get_distance([x_position, y_position], ball_position)
 
@@ -291,6 +290,10 @@ class GameServer(Supervisor):
         """Returns the Euclidean distance between two points in xy-plane"""
         return math.sqrt((point_two[0] - point_one[0]) ** 2 + (point_two[1] - point_one[1]) ** 2)
 
+    def update_state(self, player_id, state):
+        """Updates the state of the player"""
+        self.player_states[player_id][1] = state
+
     def update_position(self, player_id, x, y):
         """Updates the position of the player"""
         self.player_states[player_id][2] = [x, y]
@@ -298,13 +301,6 @@ class GameServer(Supervisor):
     def update_rotation(self, player_id, angle):
         """Updates the rotation of the player"""
         self.player_states[player_id][3] = angle
-
-    def update_state(self, player_id, state):
-        """Updates the state of the player"""
-        if player_id in self.player_states:
-            self.player_states[player_id][4] = state
-        else:
-            print(f"⚠️ Tried to update state for unknown player {player_id}")
 
     def remove_client(self, connection):
         """Removes disconnected clients"""
@@ -324,131 +320,99 @@ class GameServer(Supervisor):
             if id != sender:
                 conn.sendall(message.encode("utf-8"))
     
-    def update_roles_based_on_proximity(self):
-        """Update roles: assign Striker to closest player to ball per team; others become Midfielders."""
-        print("🔄 Checking for role updates based on proximity...", flush=True)
-        team_roles = {1: [], 2: []}
+    def update_roles_based_on_proximity(self, team):
+        """Reassign striker role to closest player to the ball per team with others becoming the midfielders"""
+        players = team.get_players()
+        closet_player = None
+        min_distance = math.inf
 
-        # Get current ball position
-        ball_position = self.ball.getPosition()
-
-        # Group players by team (excluding goalies)
-        for player_id, state in self.player_states.items():
-            role = state[0]
-            team = 1 if self.team1.has(player_id) else 2
+        # Find the closet player to the ball
+        for player in players:
+            role = self.player_states[player][0]
             if role != "Goalie":
-                position = state[2]
-                distance = self.get_distance(position, ball_position)
-                team_roles[team].append((player_id, distance))
-                print(f"🧮 {player_id} (Team {team}) is {distance:.2f} units from the ball", flush=True)
+                distance = self.player_distance_to_ball(player)
+                if distance < min_distance:
+                    min_distance = distance
+                    closet_player = player
 
-        # For each team, assign closest as striker, rest as midfielders
-        for team, players in team_roles.items():
-            if not players:
+        # Reassign role if necessary
+        for player in players:
+            role = self.player_states[player][0]
+            new_role = None
+            if role == "Goalie":
                 continue
+            if closet_player == player and role == "Striker": # No need to change role since striker is already the closet player
+                return
+            elif closet_player == player:
+                new_role = "Striker"
+                print(f"⚽ {player} is now the closest and becomes Striker.")
+            elif role != "Midfielder":
+                new_role = "Midfielder"
+                print(f"📥 {player} is no longer closest and becomes Midfielder.")
+            if new_role:
+                self.player_states[player][0] = new_role
+                self.broadcast(f'ROLE|{player}|{new_role}\n')
 
-            players.sort(key=lambda x: x[1])  # sort by distance to ball
-            closest_player_id = players[0][0]
+    def check_robot_events(self):
+        """Check if robot role should be updated"""
+        ball_position = self.ball.getPosition()
+        # Only update roles if large position changes are detected with the ball
+        if self.get_distance(ball_position, self.last_ball_position) > 0.1:
+            game_server.update_roles_based_on_proximity(game_server.team1)
+            game_server.update_roles_based_on_proximity(game_server.team2)
 
-            for player_id, _ in players:
-                new_role = "Striker" if player_id == closest_player_id else "Midfielder"
-                current_role = self.player_states[player_id][0]
-                print(f"🔍 {player_id} current role: {current_role}, new role: {new_role}", flush=True)
-
-                if current_role != new_role:
-                    print(f"🔁 Changing {player_id} to {new_role}", flush=True)
-                    self.player_states[player_id][0] = new_role
-                    self.broadcast(f"ROLE|{player_id}|{new_role}\n")
-                    last = self.last_roles.get(player_id)
-                    if last != new_role:
-                        if new_role == "Striker":
-                            print(f"⚽ {player_id} is now the closest and becomes Striker.", flush=True)
-                        else:
-                            print(f"📥 {player_id} is no longer closest and becomes Midfielder.", flush=True)
-                        self.last_roles[player_id] = new_role
-    
     def check_ball_events(self):
-        """Checks if the ball is out of bounds or scored a goal."""
-        ball_position = self.ball.getPosition()
-        ball_x, ball_y = ball_position[0], ball_position[1]
+        """Checks if the ball is out of bounds or a goal is scored or if its position change"""
+        ball_x_position, ball_y_position, _ = self.ball.getPosition()
 
-        # Refined boundaries based on field layout
-        sideline_y_limit = 2.85     # sidelines
-        field_x_limit = 5.3         # total x span
-        goal_area_x_min = 4.45
-        goal_area_x_max = 5.0
-        goal_area_y_min = -1.35
-        goal_area_y_max = 1.35
-
-        # Skip out-of-bounds only if ball is deep inside goal, but don't block goal scoring
-        if abs(ball_x) <= goal_area_x_min and goal_area_y_min <= ball_y <= goal_area_y_max:
-            return  # Ball is sitting inside the goal box, do nothing
-
-        # Behind net but NOT within scoring area = out of bounds
-        if abs(ball_x) > goal_area_x_min and not (goal_area_y_min <= ball_y <= goal_area_y_max):
-            print("⚠️ Ball went out of bounds (behind net, outside scoring area)!")
-            time.sleep(1)  # Give time for position updates to arrive
-            self.handle_out_of_bounds()
-            return
-
-        # Ball crossed sideline = out of bounds
-        if abs(ball_y) > sideline_y_limit or abs(ball_x) > field_x_limit:
-            print("⚠️ Ball went out of bounds (sideline or endline)!")
-            time.sleep(1)  # Give time for position updates to arrive
-            self.handle_out_of_bounds()
-            return
-
-        # Ball is fully past the goal line and within goal bounds = score
-        if abs(ball_x) > goal_area_x_min and goal_area_y_min <= ball_y <= goal_area_y_max:
-            scoring_team = 2 if ball_x < 0 else 1
-            team_color = "Red" if scoring_team == 1 else "Blue"
-            print(f"🥅 Goal scored by Team {scoring_team} ({team_color})!")
+        # Check if ball is in the goal area
+        if self.is_in_goal(ball_x_position, ball_y_position):
+            scoring_team = "1" if ball_x_position > 0 else "2"
             self.handle_goal(scoring_team)
+            return
 
+        # Check if the ball went out of bounds
+        if self.is_out_of_bounds(ball_x_position, ball_y_position):
+            self.handle_out_of_bounds()
+            return
+        
+        self.send_ball_position()
+        
+    def is_out_of_bounds(self, x_position, y_position):
+        """Check if a point is out of the bounds of the field"""
+        return abs(x_position) > FIELD_X_BOUND or abs(y_position) > FIELD_Y_BOUND
+
+    def is_in_goal(self, x_position, y_position):
+        """Check if a point is within the bounds of the goal area"""
+        return LOWER_GOAL_AREA_X < abs(x_position) < UPPER_GOAL_AREA_X and LOWER_GOAL_AREA_Y < abs(y_position) < UPPER_GOAL_AREA_Y
+        
     def handle_out_of_bounds(self):
-        """Handles out-of-bounds by placing the ball near the closest non-goalie player 
-        who is NOT inside the goal area and is still within field bounds."""
-        ball_position = self.ball.getPosition()
-        min_dist = float('inf')
-        fallback_player = None
+        """Handles out-of-bounds by placing the ball near the closest non-goalie player
+        who is not inside the goal area and is still within the bounds of the field"""
+        print("⚠️ Ball went out of bounds")
+        min_distance = math.inf
         closest_valid_player = None
 
-         # field and goal area limits
-        field_x_limit = 5.3
-        field_y_limit = 2.85
-        goal_x_min = 4.45
-        goal_x_max = 5.0
-        goal_y_min = -1.35
-        goal_y_max = 1.35
-
-        for player_id, state in self.player_states.items():
+        for player, state in self.player_states.items():
             role = state[0]
-            player_x, player_y = state[2]
+            x_position, y_position = state[2]
 
             # Skip goalies
             if role == "Goalie":
                 continue
 
-            # Save a fallback just in case
-            if fallback_player is None:
-                fallback_player = player_id
-
-            # Check if player is NOT inside the goal zone
-            in_goal_zone = goal_x_min <= abs(player_x) <= goal_x_max and goal_y_min <= player_y <= goal_y_max
-            in_bounds = abs(player_x) <= field_x_limit and abs(player_y) <= field_y_limit
-
-            # Ignore players inside goal zone
+            # Check if player is not inside the goal zone and not out of bounds
+            in_goal_zone = self.is_in_goal(x_position, y_position)
+            in_bounds = not self.is_out_of_bounds(x_position, y_position)
             if not in_goal_zone and in_bounds:
-                distance = self.get_distance([player_x, player_y], ball_position)
-                if distance < min_dist:
-                    min_dist = distance
-                    closest_valid_player = player_id
+                distance = self.player_distance_to_ball(player)
+                if distance < min_distance:
+                    min_distance = distance
+                    closest_valid_player = player
 
-        # Use fallback if all players were in the goal
-        chosen_player = closest_valid_player if closest_valid_player else fallback_player
-
-        if chosen_player:
-            robot = self.players[chosen_player]
+        # Reposition if a valid player exist
+        if closest_valid_player:
+            robot = self.players[closest_valid_player]
             rotation = robot.getField("rotation").getSFRotation()
             axis, angle = rotation[:3], rotation[3]
 
@@ -457,26 +421,27 @@ class GameServer(Supervisor):
             else:
                 yaw = 0
 
-            player_pos = self.player_states[chosen_player][2]
-            x, y = player_pos
-
             # Offset the ball in front of the player based on their facing direction
-            offset_distance = 0.4  # distance in front of robot
-            dx = offset_distance * math.cos(yaw)
-            dy = offset_distance * math.sin(yaw)
+            x, y = self.player_states[closest_valid_player][2]
+            dx = OFFSET_DISTANCE * math.cos(yaw)
+            dy = OFFSET_DISTANCE * math.sin(yaw)
 
             # Clamp spawn near field bounds, avoid corners
-            new_ball_x = max(min(x + dx, 5.1), -5.1)
-            new_ball_y = max(min(y + dy, 2.8), -2.8)
-
+            x_bound = FIELD_X_BOUND + 2 * OFFSET_DISTANCE
+            y_bound = FIELD_Y_BOUND - OFFSET_DISTANCE
+            new_ball_x = max(min(x + dx, x_bound), -x_bound)
+            new_ball_y = max(min(y + dy, y_bound), -y_bound)
             self.ball.getField("translation").setSFVec3f([new_ball_x, new_ball_y, 0.07])
-            print(f"📦 Ball reset near Player {chosen_player} at ({new_ball_x:.2f}, {new_ball_y:.2f})")
+            print(f"📦 Ball reset near Player {closest_valid_player} at ({new_ball_x:.2f}, {new_ball_y:.2f})")
+        else:
+            # Reset everyone position
+            pass
 
     def handle_goal(self, scoring_team):
-        print(f"🥅 Handling goal scored by Team {scoring_team}")
-
+        """Update game state after a goal is scored"""
+        print(f"🥅 Goal scored by Team {scoring_team}!")
         # Update the team's score
-        if scoring_team == 1:
+        if scoring_team == "1":
             self.team1.add_score()
             self.update_score("1", self.team1.get_score())
         else:
@@ -484,76 +449,32 @@ class GameServer(Supervisor):
             self.update_score("2", self.team2.get_score())
 
         # Inform robots to start recovery motion
-        self.broadcast("GOAL|RECOVER\n")
-        for player_id in self.player_states:
-            self.player_states[player_id][1] = 'WAITING'
-
-        # TELEPORT robots to sideline
-        self.teleport_robots_to_sideline()
-
-        # Let Webots physics engine stabilize robots at sideline
-        stabilization_steps = int(1.5 / (self.getBasicTimeStep() / 1000.0))  # 1.5 seconds worth of steps
-        print(f"⏳ Stabilizing robots at sideline with {stabilization_steps} steps...")
-        for _ in range(stabilization_steps):
-            self.step(int(self.getBasicTimeStep()))
-
-        # THEN wait for acknowledgments
-        self.await_robot_acknowledgments()
-
-        # Reset ball and player starting positions
-        self.reset_positions_after_goal()
-
-        # Send second recover command
-        self.broadcast("GOAL|RECOVER_AFTER_RESET\n")
-        for player_id in self.player_states:
-            self.player_states[player_id][1] = 'WAITING'
-
-        # Wait for ACKs again
-        self.await_robot_acknowledgments()
-
-        # Resume play
-        self.broadcast("GOAL|RESET\n")
-        for player_id in self.player_states:
-            self.player_states[player_id][1] = None
-
-    def await_robot_acknowledgments(self, timeout=15):
-        print("⏳ Awaiting acknowledgments from all robots...")
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            if all(state[1] == 'ACK' for state in self.player_states.values()):
-                print("✅ All robots acknowledged recovery.")
-                return
-            time.sleep(0.05)
-        print("⚠️ Timeout waiting for robot acknowledgments.")
-
-    def reset_positions_after_goal(self):
-        print("🔄 Resetting ball and players to initial positions.")
-
+        self.broadcast("GOAL\n")
+        self.game_started = False
+        
+        # Move robots to the sideline
+        self.move_robots_to_sideline()
+        
+    def reset_game(self):
+        """Reset the position and rotation of the ball and the robots"""
+        print("🔄 Resetting ball and players to initial positions")
+        
         # Reset ball position
-        self.ball.getField("translation").setSFVec3f([0, 0, 0.07])
-        self.last_ball_position = [0, 0, 0.07]
-        self.send_ball_position(force=True)
+        self.ball.getField("translation").setSFVec3f(INIT_BALL_POS)
+        self.last_ball_position = INIT_BALL_POS
+        self.send_ball_position(force = True)
 
         # Reset all player states and inform clients
         self.assign_initial_team_states(self.team1)
         self.assign_initial_team_states(self.team2)
-
-        stabilization_steps = int(1.0 / (self.getBasicTimeStep() / 1000.0))  # 1 second worth of steps
-        print(f"⏳ Stabilizing robots after reset with {stabilization_steps} steps...")
-        for _ in range(stabilization_steps):
-            self.step(int(self.getBasicTimeStep()))
-
         self.send_initial_states()
-
-        # Reset player ACK states
-        for state in self.player_states.values():
-            state[1] = None
+        self.start_game()
 
     def update_score(self, team_number, score):
         """Update the score of the team"""
         if team_number == "1":
             self.setLabel(
-                0,
+                1,
                 f'Red Team: {score}',
                 0, 0.01,
                 0.15,
@@ -563,52 +484,25 @@ class GameServer(Supervisor):
             )
         else:
             self.setLabel(
-            1,
+            2,
             f'Blue Team: {score}',
-            0.725, 0.01,
+            0, 0.93,
             0.15,
             0x0000FF,
             0.0,
             "Arial"
         )
             
-    def teleport_robots_to_sideline(self):
-        print("🚧 Teleporting robots to sideline for recovery.")
-        y_sideline = -2.85
-        spacing = 1.0  # spacing between players on sideline
-        x_start = -2.5
+    def move_robots_to_sideline(self):
+        print("🚧 Moving robots to sideline for recovery")
+        spacing = 1.0  # Spacing between players on sideline
+        x_start = -ROBOT_X_POSITION
+        y_sideline = FIELD_Y_BOUND
         for i, player_id in enumerate(self.players):
-            robot = self.players[player_id]
             x = x_start + spacing * i
-            translation_field = robot.getField("translation")
-            translation_field.setSFVec3f([x, y_sideline, ROBOT_Z_POSITION])
-
-            rotation_field = robot.getField("rotation")
-            rotation_field.setSFRotation([0, 0, 1, 0])  # facing forward
-
-
-    def update_score(self, team_number, score):
-        """Update the score of the team"""
-        if team_number == "1":
-            game_server.setLabel(
-                0,
-                f'Red Team: {score}',
-                0, 0.01,
-                0.15,
-                0xFF0000,
-                0.0,
-                "Arial"
-            )
-        else:
-            game_server.setLabel(
-            1,
-            f'Blue Team: {score}',
-            0.725, 0.01,
-            0.15,
-            0x0000FF,
-            0.0,
-            "Arial"
-        )
+            self.update_position(player_id, x, y_sideline)
+            self.update_rotation(player_id, -math.pi / 2)
+            self.apply_player_state_in_simulation(player_id)
 
 host = "127.0.0.1"
 port = 5555
@@ -618,26 +512,22 @@ game_server = GameServer(6)
 server_thread = threading.Thread(target=game_server.start_server, args=(host, port,), daemon=True)
 server_thread.start()
 
-game_server.last_role_update_time = 0
-game_server.role_update_interval = 0.5  # seconds
-
 timestep = int(game_server.getBasicTimeStep())
 
 # Create the score text
 game_server.setLabel(
-    0,
+    1,
     "Red Team: 0",
-    0, 0.01,
+    0, 0,
     0.15,
     0xFF0000,
     0.0,
     "Arial"
 )
-
 game_server.setLabel(
-    1,
+    2,
     "Blue Team: 0",
-    0.725, 0.01,
+    0, 0.93,
     0.15,
     0x0000FF,
     0.0,
@@ -647,12 +537,5 @@ game_server.setLabel(
 # Webots main loop
 while game_server.step(timestep) != 1:
     if game_server.game_started:
-        game_server.send_ball_position()
         game_server.check_ball_events()
-
-
-        current_time = game_server.getTime()
-
-        if current_time - game_server.last_role_update_time > game_server.role_update_interval:
-            game_server.update_roles_based_on_proximity()
-            game_server.last_role_update_time = current_time
+        game_server.check_robot_events()
