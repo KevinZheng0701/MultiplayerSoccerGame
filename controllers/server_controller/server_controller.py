@@ -284,6 +284,9 @@ class GameServer(Supervisor):
             ClientMessageQueue
         )  # List of delayed messages
         self.last_fault_time = {}
+        self.last_wind_time = self.getTime()
+        self.next_wind_interval = random.uniform(5, 10)  # seconds
+
 
     def start_server(self, host, port):
         """Starts the server and wait for connections"""
@@ -815,7 +818,7 @@ class GameServer(Supervisor):
                 {"x_min": -0.6, "x_max": -0.3, "y_min": 0.2, "y_max": 0.5},
                 {"x_min": 0.3,  "x_max": 0.6,  "y_min": -0.5, "y_max": -0.2},
                 {"x_min": 1.4,  "x_max": 1.7,  "y_min": 1.0,  "y_max": 1.3},
-                {"x_min": 2.1,  "x_max": 2.4,  "y_min": -1.0, "y_max": -0.7},
+                {"x_min": 2.1,  "x_max": 2.4,  "y_min": -1.6, "y_max": -1.3},
             ]
 
             # Add red translucent patches once
@@ -883,6 +886,47 @@ class GameServer(Supervisor):
 
         except Exception as e:
             print(f"⚠️ Terrain fault injection error: {e}")
+        
+    def apply_wind_force(self):
+        current_time = self.getTime()
+        # Don’t allow wind until 60 seconds after game starts
+        if current_time < 60:
+            return
+    
+        if current_time - self.last_wind_time >= self.next_wind_interval:
+            # Update wind timing
+            self.last_wind_time = current_time
+            self.next_wind_interval = random.uniform(60, 90)
+
+            # Random wind direction (horizontal)
+            force = [
+                random.uniform(-0.2, 0.2),  # x-direction
+                random.uniform(-0.2, 0.2),  # y-direction
+                0  # z-direction (no vertical wind)
+            ]
+
+            print(f"💨 Wind force triggered: {force}")
+
+            # Apply to all robots
+            for robot in self.players.values():
+                robot.addForce(force, False)
+
+            # Apply to ball as well
+            self.ball.addForce(force, False)
+
+            # Show wind label onscreen
+            self.setLabel(
+                3, "Wind Gust!", 
+                0.48, 0.02,   # x, y position (center top)
+                0.14,          # font size (slightly larger)
+                0xFFFFFF,     
+                0.0,          
+                "Arial"
+            )
+
+            # Remove the label after 2 seconds
+            threading.Timer(2.0, lambda: self.setLabel(3, "", 0, 0, 0, 0x000000, 0.0, "Arial")).start()
+
 
 host = "127.0.0.1"
 port = 5555
@@ -917,4 +961,6 @@ while game_server.step(timestep) != 1:
         game_server.check_robot_events()
         game_server.check_ball_events()
         game_server.apply_terrain_faults()
+        game_server.apply_wind_force()
+
 
