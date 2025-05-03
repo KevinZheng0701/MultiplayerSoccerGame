@@ -5,6 +5,7 @@ import uuid
 import math
 import random
 from collections import defaultdict, deque
+import time
 
 GOALIE_X_POSITION = 4.5  # The starting x position of the goalie robot
 ROBOT_X_POSITION = 2.5  # The starting x position of the robots
@@ -282,6 +283,7 @@ class GameServer(Supervisor):
         self.delayed_messages = defaultdict(
             ClientMessageQueue
         )  # List of delayed messages
+        self.last_fault_time = {}
 
     def start_server(self, host, port):
         """Starts the server and wait for connections"""
@@ -803,7 +805,84 @@ class GameServer(Supervisor):
             client_queue.add_message(simulated_arrival_time, send_time, message)
             return True
         return False
+    
+    def apply_terrain_faults(self):
+        try:
+            # 6 fixed terrain zones: 3 on red side (x < 0), 3 on blue side (x > 0)
+            terrain_zones = [
+                {"x_min": -2.6, "x_max": -2.3, "y_min": 0.5, "y_max": 0.8},
+                {"x_min": -1.5, "x_max": -1.2, "y_min": -1.8, "y_max": -1.5},
+                {"x_min": -0.6, "x_max": -0.3, "y_min": 0.2, "y_max": 0.5},
+                {"x_min": 0.3,  "x_max": 0.6,  "y_min": -0.5, "y_max": -0.2},
+                {"x_min": 1.4,  "x_max": 1.7,  "y_min": 1.0,  "y_max": 1.3},
+                {"x_min": 2.1,  "x_max": 2.4,  "y_min": -1.0, "y_max": -0.7},
+            ]
 
+            # Add red translucent patches once
+            if not hasattr(self, "terrain_patches_visualized"):
+                patch_string_template = """
+                Solid {{
+                translation {x} {y} 0.01
+                rotation 0 0 1 0
+                children [
+                    Shape {{
+                    appearance Appearance {{
+                        material Material {{
+                        diffuseColor 1 0 0
+                        transparency 0.6
+                        }}
+                    }}
+                    geometry Box {{
+                        size {w} {h} 0.01
+                    }}
+                    }}
+                ]
+                name "VisualTerrainPatch"
+                contactMaterial "default"
+                }}
+                """
+                root = self.getRoot()
+                for zone in terrain_zones:
+                    x_center = (zone["x_min"] + zone["x_max"]) / 2
+                    y_center = (zone["y_min"] + zone["y_max"]) / 2
+                    width = zone["x_max"] - zone["x_min"]
+                    height = zone["y_max"] - zone["y_min"]
+                    patch_string = patch_string_template.format(
+                        x=x_center, y=y_center, w=width, h=height
+                    )
+                    root.getField("children").importMFNodeFromString(-1, patch_string)
+                print("🎨 6 terrain patches visualized.")
+                self.terrain_patches_visualized = True
+
+            cooldown = 3  # seconds between falls per robot
+            chance_to_fall = 0.5
+            current_time = time.time()
+
+            for player_id, robot in self.players.items():
+                pos = robot.getPosition()
+                last_time = self.last_fault_time.get(player_id, 0)
+
+                for zone in terrain_zones:
+                    in_zone = (
+                        zone["x_min"] <= pos[0] <= zone["x_max"]
+                        and zone["y_min"] <= pos[1] <= zone["y_max"]
+                    )
+
+                    if in_zone:
+                        if current_time - last_time >= cooldown and random.random() < chance_to_fall:
+                            force = [
+                                random.uniform(-150, 150),
+                                random.uniform(-150, 150),
+                                random.uniform(-50, -70),
+                            ]
+                            offset = [random.uniform(-0.03, 0.03), 0, 0.25]
+                            robot.addForceWithOffset(force, offset, False)
+                            self.last_fault_time[player_id] = current_time
+                            print(f"🌀 Terrain fault triggered on {player_id} at {pos}")
+                        break  # Skip checking other zones once triggered
+
+        except Exception as e:
+            print(f"⚠️ Terrain fault injection error: {e}")
 
 host = "127.0.0.1"
 port = 5555
@@ -837,3 +916,5 @@ while game_server.step(timestep) != 1:
         game_server.check_queue_messages()
         game_server.check_robot_events()
         game_server.check_ball_events()
+        game_server.apply_terrain_faults()
+
