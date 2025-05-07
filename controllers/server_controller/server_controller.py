@@ -3,9 +3,11 @@ import socket
 import threading
 import uuid
 import math
-import random
-from collections import defaultdict, deque
-import time
+from collections import defaultdict
+from RobotTeam import Team
+from ClientMessageQueue import ClientMessageQueue
+from Observer import ArtificialFaultObserver
+from Injector import ArtificialFaultInjector
 
 GOALIE_X_POSITION = 4.5  # The starting x position of the goalie robot
 ROBOT_X_POSITION = 2.5  # The starting x position of the robots
@@ -23,239 +25,6 @@ UPPER_GOAL_AREA_Y = 1.2  # The upper bound on the y value of the goal area
 OFFSET_DISTANCE = 0.3  # The distance in front of robot
 
 INIT_BALL_POS = [0, 0, 0.07]  # The starting position of the ball
-
-
-class Team:
-    """
-    Represents a team in a multiplayer game, managing players, scoring, and basic team info.
-    """
-
-    def __init__(self, team_number=0, capacity=0):
-        """
-        Initialize a new team.
-
-        Args:
-            team_number (int): Identifier for the team.
-            capacity (int): Maximum number of players allowed in the team.
-        """
-        self.players = set()
-        self.team_lock = threading.Lock()
-        self.capacity = capacity
-        self.team_number = team_number
-        self.score = 0
-
-    def __len__(self):
-        """
-        Return the number of players currently on the team.
-
-        Returns:
-            int: Number of players in the team.
-        """
-        return len(self.players)
-
-    def add_player(self, player):
-        """
-        Add a player to the team if capacity allows.
-
-        Args:
-            player (str): The player ID to add.
-        """
-        with self.team_lock:
-            if len(self.players) < self.capacity:
-                self.players.add(player)
-
-    def remove_player(self, player):
-        """
-        Remove a player from the team.
-
-        Args:
-            player (str): The player ID to remove.
-        """
-        with self.team_lock:
-            self.players.discard(player)
-
-    def get_players(self):
-        """
-        Get all player IDs in the team.
-
-        Returns:
-            list[str]: List of player IDs.
-        """
-        return list(self.players)
-
-    def get_team_number(self):
-        """
-        Get the team's identifier number.
-
-        Returns:
-            int: The team number.
-        """
-        return self.team_number
-
-    def has(self, player_id):
-        """
-        Check if a player is part of the team.
-
-        Args:
-            player_id (str): The player ID to check.
-
-        Returns:
-            bool: True if the player is in the team, False otherwise.
-        """
-        return player_id in self.players
-
-    def add_score(self):
-        """
-        Increment the team's score by one.
-        """
-        self.score += 1
-
-    def get_score(self):
-        """
-        Get the current score of the team.
-
-        Returns:
-            int: The current team score.
-        """
-        return self.score
-
-
-class ArtificialFaultObserver:
-    def __init__(self):
-        self.faults_detected = {"network": 0}
-
-    def detect_network_delay(self, arrival_time, curr_time, tolerance=1):
-        """Detect if there is a message arrival longer than the allowed tolerance"""
-        if arrival_time > curr_time + tolerance:
-            self.faults_detected["network"] += 1
-            return True
-        else:
-            return False
-
-    def print_network_faults(self):
-        """Print the number of times a network delay is detected."""
-        print(self.faults_detected["network"])
-
-    def detect_terrain_faults(self):
-        pass
-
-    def detect_wind_faults(self):
-        pass
-
-
-class ArtificialFaultInjector:
-    def __init__(self, chance=0.75, lambd=1):
-        self.fault_chance = chance
-        self.lambd = lambd  # A higher λ means events occur more frequently and a lower λ spreads the values out more
-
-    def inject_artificial_network_delay(self, duration=-1):
-        """
-        Injects an artificial network delay to simulate communication latency.
-        Args:
-            duration (float): If greater or equal to 0, this fixed delay is returned directly. Else a randomized delay logic is used.
-        Returns:
-            float: The delay in seconds to apply.
-                - Returns 0 with probability `fault_chance`.
-                - Otherwise, returns a delay sampled from an exponential distribution.
-        """
-        # Use fixed delay if explicitly provided
-        if duration >= 0:
-            return duration
-        # With some probability, no delay is injected
-        if random.random() < self.fault_chance:
-            return 0
-        # Otherwise, sample a delay from the exponential distribution
-        return random.expovariate(self.lambd)
-
-
-class ClientMessageQueue:
-    """
-    A per-client message queue that simulates network delay with in-order processing.
-    Messages are added with a simulated arrival time. If messages arrive too soon after
-    a previous delayed message, their processing is postponed to simulate a network pipeline effect.
-    """
-
-    def __init__(self):
-        """
-        Initialize the message queue and the earliest arrival tracker.
-        """
-        self.earliest_arrival = 0.0  # Time when the next message can be processed
-        self.earliest_sent_time = -1  # Will store the first delayed send time
-        self.queue = deque()  # Holds (arrival_time, send_time, message) details
-
-    def add_message(self, arrival_time, sent_time, message):
-        """
-        Add a message to the queue with pipeline delay enforcement. If the queue already contains messages, this message's scheduled time is adjusted
-        to not arrive earlier than the last message.
-
-        Args:
-            arrival_time (float): Simualted arrival time of the message.
-            send_time (float): The original time the message was sent.
-            message (str): The message object to store.
-        """
-        if self.queue:
-            scheduled_time = max(arrival_time, self.queue[-1][0])
-        else:
-            scheduled_time = arrival_time
-            self.earliest_arrival = arrival_time
-            self.earliest_sent_time = sent_time
-
-        self.queue.append((scheduled_time, sent_time, message))
-
-    def is_queue_empty(self):
-        """
-        Check if the message queue is empty.
-
-        Returns:
-            bool: True if there are no messages in the queue, False otherwise.
-        """
-        return not self.queue
-
-    def can_message_be_processed(self, curr_time):
-        """
-        Check if the message at the front of the queue can be processed.
-
-        Args:
-            curr_time (float): The current simulation time.
-
-        Returns:
-            bool: True if the first message is ready to be processed, False otherwise.
-        """
-        return not self.is_queue_empty() and curr_time >= self.earliest_arrival
-
-    def get_top_message(self):
-        """
-        Retrieve and remove the first ready message from the queue.
-
-        Returns:
-            str: The message content, or "" if the queue is empty.
-        """
-        if not self.queue:
-            return ""
-
-        _, _, message = self.queue.popleft()
-        if self.queue:
-            self.earliest_arrival = self.queue[0][0]
-            self.earliest_sent_time = self.queue[0][1]
-        return message
-
-    def get_earliest_arrival_time(self):
-        """
-        Get the earliest time at which the next message can be processed.
-
-        Returns:
-            float: The scheduled arrival time of the first message in the queue, or the last scheduled time if the queue is empty.
-        """
-        return self.earliest_arrival
-
-    def get_earliest_sent_time(self):
-        """
-        Get the original send time of the first message in the queue.
-
-        Returns:
-            float: The send time of the earliest message, or the last sent time if the queue is empty.
-        """
-        return self.earliest_sent_time
 
 
 class GameServer(Supervisor):
@@ -283,10 +52,7 @@ class GameServer(Supervisor):
         self.delayed_messages = defaultdict(
             ClientMessageQueue
         )  # List of delayed messages
-        self.last_fault_time = {}
-        self.last_wind_time = self.getTime()
-        self.next_wind_interval = random.uniform(5, 10)  # seconds
-
+        self.add_terrain_patches()
 
     def start_server(self, host, port):
         """Starts the server and wait for connections"""
@@ -808,128 +574,47 @@ class GameServer(Supervisor):
             client_queue.add_message(simulated_arrival_time, send_time, message)
             return True
         return False
-    
+
+    def add_terrain_patches(self):
+        """Create fixed terrain zones to simulate roughness in real soccer patches"""
+        patches = injector.get_terrain_patches()
+        root = self.getRoot()
+        for patch in patches:
+            root.getField("children").importMFNodeFromString(-1, patch)
+        print("🎨 6 terrain patches visualized.")
+
     def apply_terrain_faults(self):
-        try:
-            # 6 fixed terrain zones: 3 on red side (x < 0), 3 on blue side (x > 0)
-            terrain_zones = [
-                {"x_min": -2.6, "x_max": -2.3, "y_min": 0.5, "y_max": 0.8},
-                {"x_min": -1.5, "x_max": -1.2, "y_min": -1.8, "y_max": -1.5},
-                {"x_min": -0.6, "x_max": -0.3, "y_min": 0.2, "y_max": 0.5},
-                {"x_min": 0.3,  "x_max": 0.6,  "y_min": -0.5, "y_max": -0.2},
-                {"x_min": 1.4,  "x_max": 1.7,  "y_min": 1.0,  "y_max": 1.3},
-                {"x_min": 2.1,  "x_max": 2.4,  "y_min": -1.6, "y_max": -1.3},
-            ]
-
-            # Add red translucent patches once
-            if not hasattr(self, "terrain_patches_visualized"):
-                patch_string_template = """
-                Solid {{
-                translation {x} {y} 0.01
-                rotation 0 0 1 0
-                children [
-                    Shape {{
-                    appearance Appearance {{
-                        material Material {{
-                        diffuseColor 1 0 0
-                        transparency 0.6
-                        }}
-                    }}
-                    geometry Box {{
-                        size {w} {h} 0.01
-                    }}
-                    }}
-                ]
-                name "VisualTerrainPatch"
-                contactMaterial "default"
-                }}
-                """
-                root = self.getRoot()
-                for zone in terrain_zones:
-                    x_center = (zone["x_min"] + zone["x_max"]) / 2
-                    y_center = (zone["y_min"] + zone["y_max"]) / 2
-                    width = zone["x_max"] - zone["x_min"]
-                    height = zone["y_max"] - zone["y_min"]
-                    patch_string = patch_string_template.format(
-                        x=x_center, y=y_center, w=width, h=height
-                    )
-                    root.getField("children").importMFNodeFromString(-1, patch_string)
-                print("🎨 6 terrain patches visualized.")
-                self.terrain_patches_visualized = True
-
-            cooldown = 3  # seconds between falls per robot
-            chance_to_fall = 0.5
-            current_time = time.time()
-
-            for player_id, robot in self.players.items():
-                pos = robot.getPosition()
-                last_time = self.last_fault_time.get(player_id, 0)
-
-                for zone in terrain_zones:
-                    in_zone = (
-                        zone["x_min"] <= pos[0] <= zone["x_max"]
-                        and zone["y_min"] <= pos[1] <= zone["y_max"]
-                    )
-
-                    if in_zone:
-                        if current_time - last_time >= cooldown and random.random() < chance_to_fall:
-                            force = [
-                                random.uniform(-150, 150),
-                                random.uniform(-150, 150),
-                                random.uniform(-50, -70),
-                            ]
-                            offset = [random.uniform(-0.03, 0.03), 0, 0.25]
-                            robot.addForceWithOffset(force, offset, False)
-                            self.last_fault_time[player_id] = current_time
-                            print(f"🌀 Terrain fault triggered on {player_id} at {pos}")
-                        break  # Skip checking other zones once triggered
-
-        except Exception as e:
-            print(f"⚠️ Terrain fault injection error: {e}")
-        
-    def apply_wind_force(self):
-        current_time = self.getTime()
-        # Don’t allow wind until 60 seconds after game starts
-        if current_time < 60:
-            return
-    
-        if current_time - self.last_wind_time >= self.next_wind_interval:
-            # Update wind timing
-            self.last_wind_time = current_time
-            self.next_wind_interval = random.uniform(60, 90)
-
-            # Random wind direction (horizontal)
-            force = [
-                random.uniform(-0.2, 0.2),  # x-direction
-                random.uniform(-0.2, 0.2),  # y-direction
-                0  # z-direction (no vertical wind)
-            ]
-
-            print(f"💨 Wind force triggered: {force}")
-
-            # Apply to all robots
-            for robot in self.players.values():
-                robot.addForce(force, False)
-
-            # Apply to ball as well
-            self.ball.addForce(force, False)
-
-            # Show wind label onscreen
-            self.setLabel(
-                3, "Wind Gust!", 
-                0.48, 0.02,   # x, y position (center top)
-                0.14,          # font size (slightly larger)
-                0xFFFFFF,     
-                0.0,          
-                "Arial"
+        """Add some force on robots that are on top of the patches"""
+        current_time = float(self.getTime())
+        for player_id, robot in self.players.items():
+            x_position, y_position, _ = robot.getPosition()
+            force, offset = injector.inject_terrain_forces(
+                player_id, current_time, x_position, y_position
             )
+            if force and observer.detect_terrain_fault(force, [50, 50]):
+                robot.addForceWithOffset(force, offset, False)
+                print(
+                    f"🌀 Terrain fault triggered on {player_id} at {x_position}, {y_position} with forces: {force}"
+                )
 
-            # Remove the label after 2 seconds
-            threading.Timer(2.0, lambda: self.setLabel(3, "", 0, 0, 0, 0x000000, 0.0, "Arial")).start()
+    def apply_wind_force(self):
+        """Apply a random wind force once the cooldown is over"""
+        current_time = self.getTime()
+        x_force, y_force = injector.inject_wind_forces(current_time, 0.2)
+        if x_force and observer.detect_wind_forces([x_force, y_force], [0.025, 0.025]):
+            # Apply to all robots and the ball
+            for robot in self.players.values():
+                robot.addForce((x_force, y_force, 0), False)
+            self.ball.addForce((x_force, y_force, 0), False)
+            print(f"💨 Wind force triggered in the direction: {x_force}, {y_force}")
 
 
 host = "127.0.0.1"
 port = 5555
+
+# Fault injection and detection
+observer = ArtificialFaultObserver()
+injector = ArtificialFaultInjector(lambd=1)
 
 # Start the server in a separate thread
 game_server = GameServer(6)
@@ -949,11 +634,6 @@ timestep = int(game_server.getBasicTimeStep())
 game_server.setLabel(1, "Red Team: 0", 0, 0, 0.15, 0xFF0000, 0.0, "Arial")
 game_server.setLabel(2, "Blue Team: 0", 0, 0.93, 0.15, 0x0000FF, 0.0, "Arial")
 
-
-# Fault injection and detection
-observer = ArtificialFaultObserver()
-injector = ArtificialFaultInjector(lambd=1)
-
 # Webots main loop
 while game_server.step(timestep) != 1:
     if game_server.game_started:
@@ -962,5 +642,3 @@ while game_server.step(timestep) != 1:
         game_server.check_ball_events()
         game_server.apply_terrain_faults()
         game_server.apply_wind_force()
-
-
