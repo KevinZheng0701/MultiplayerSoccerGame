@@ -26,7 +26,7 @@ Each robot is fully autonomous and uses built-in AI to make real-time decisions 
 - WYSIWIS Environment Consistency
   Ensure What You See Is What I See consistency so that all agents operate with a shared and unified view of the game world.
 
-## Technologies Use
+## Technologies Used
 
 - Webots – 3D robotics simulation platform used to create the virtual soccer field and robot environment.
 
@@ -47,7 +47,6 @@ Each robot is fully autonomous and uses built-in AI to make real-time decisions 
 
    ```bash
    git clone https://github.com/KevinZheng0701/MultiplayerSoccerGame.git
-
    ```
 
 4. **Open the Simulation in Webots**  
