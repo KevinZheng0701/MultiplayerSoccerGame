@@ -1,35 +1,63 @@
 import socket
 import threading
 import math
-from Nao import Nao
+from nao_robot import Nao
 
-GOALIE_X_POSITION = 4.5
-MIDFIELDER_DISTANCE = 1
+GOALIE_X_POSITION = 4.5  # X-position for the goalie line
+MIDFIELDER_DISTANCE = (
+    1  # Y-axis offset used by midfielders to spread out relative to the ball
+)
 
 
 class SoccerRobot(Nao):
+    """
+    SoccerRobot inherits from the Nao robot class and uses motion files for movement execution.
+    It communicates with the game server via TCP sockets to receive state updates and send actions.
+    The robot understands its environment by tracking ball position, team composition, player states,
+    and dynamically adapts its behavior based on its assigned role (e.g., goalie, striker, midfielder).
+    """
+
     def __init__(self):
         super().__init__()
+        # Team and game state
         self.my_team = set()
         self.opponent_team = set()
         self.ball_position = [0, 0, 0]
         self.player_states = {}  # Store player positions and role status
+
+        # Identity and communication
         self.sock = None
         self.team_number = None
         self.player_id = None
+
+        # Robot behavior state
         self.state = None
         self.role = None
         self.target_position = [0, 0]  # The position the robot is heading towards
         self.target_rotation = [0, 0]  # The rotation the robot is targeting
+
+        # Timing and movement tracking
         self.start_time = 0
         self.setup_time = math.inf  # The delay needed for physics calculations
         self.last_state = None
         self.last_position = [0, 0]
         self.last_rotation = 0
+
+        # Fall recovery to ensure robot is standing up right
         self.recovery_mode = False
 
+    # ───────────────────────────────────────
+    # 📡 Server Connection & Communication
+    # ───────────────────────────────────────
+
     def connect_to_server(self, host, port):
-        """Establishes a connection to the game server and sends its GPS position"""
+        """
+        Establishes a TCP connection to the game server and starts a listener thread.
+
+        Args:
+            host (str): The IP address or hostname of the game server.
+            port (int): The port number to connect to.
+        """
         print("🔄 Attempting to connect to server...")
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
@@ -41,7 +69,9 @@ class SoccerRobot(Nao):
             print(f"⚠️ Connection to server failed: {error}")
 
     def listen_for_server(self):
-        """Listen to messages from the server"""
+        """
+        Continuously listens for messages from the game server in a background thread.
+        """
         try:
             buffer = ""  # Buffer to store the message
             while True:
@@ -59,8 +89,436 @@ class SoccerRobot(Nao):
             print(f"Client {self.player_id} closing connection with server.")
             self.sock.close()
 
+    def send_message(self, message, delay_tolerance=0.5):
+        """
+        Sends a message to the server, including the current timestamp and delay tolerance.
+
+        Args:
+            message (str): Message content (without timing data).
+            delay_tolerance (float): Max delay allowed in seconds for the message.
+        """
+        self.sock.sendall(
+            f"{message}|{self.getTime()}|{delay_tolerance}\n".encode("utf-8")
+        )
+
+    # ───────────────────────────────────────
+    # 🧠 Robot Decision Making
+    # ───────────────────────────────────────
+
+    def determine_action(self):
+        """
+        Determines the next action for the robot based on its current role and game state.
+        """
+        if not self.is_motion_over():
+            return
+        # If the robot has fallen then ensure it is getting up first
+        if self.has_fallen():
+            self.play_standup_motion()
+            self.state = "Recovering"
+            return
+        if self.state == "Recovering" or self.state == "Kicking":
+            self.state = None
+        if self.recovery_mode:
+            # Once in recovery mode and stable, send acknowledge to server
+            self.setup_time = math.inf
+            message = f"ACK|{self.player_id}"
+            self.send_message(message)
+            self.recovery_mode = False
+            return
+        match self.role:
+            case "Goalie":
+                self.determine_goalie_action()
+            case "Striker":
+                self.determine_striker_action()
+            case "Midfielder":
+                self.determine_midfielder_action()
+            case _:
+                print(f"⚠️ Role not recognized: {self.role}")
+        if self.state == "Moving":
+            self.move_to_position(self.target_position)
+        elif self.state == "Turning":
+            self.turn_to_direction(self.target_rotation, moveAfterTurn=True)
+        elif self.state == "Sliding":
+            self.side_step_to_position(self.target_position[1])
+        elif self.state == "Backing":
+            self.back_up(self.target_position[0])
+
+    def determine_goalie_action(self, threshold=0.1):
+        """
+        Determines the goalie's behavior based on ball position and proximity to goal.
+
+        Args:
+            threshold (float): Minimum y-distance from the ball before adjusting alignment.
+
+        The goalie will:
+        - Face the opposing goal.
+        - Back up if behind the ball.
+        - Slide along the goal line to align with the ball.
+        - Approach and kick the ball if it's close to the goal.
+        """
+        # If the ball is far from goal the goalie should just stay along the x axis of the goal
+        position = self.get_position()
+        ball_x_position, ball_y_position, _ = self.ball_position
+        if abs(ball_x_position - position[0]) < 4:
+            # Goalie should be facing towards the other team goal
+            target_direction = [1, 0] if self.team_number == 1 else [-1, 0]
+            if self.turn_to_direction(target_direction, 20):
+                return
+
+            # If the robot is in front of the ball, the robot should move back
+            goalie_x_axis = (
+                -GOALIE_X_POSITION if self.team_number == 1 else GOALIE_X_POSITION
+            )
+            if not self.is_ball_ahead(ball_x_position, position[0], 0.1):
+                self.target_position[0] = goalie_x_axis
+                self.state = "Backing"
+            # Move the robot in front of the ball
+            elif abs(ball_y_position - position[1]) > threshold:
+                self.slide_to_y_position(ball_y_position, -1, 1)
+            # Move the robot towards the ball
+            elif (
+                self.get_distance(
+                    [ball_x_position, ball_y_position], [goalie_x_axis, position[1]]
+                )
+                < 1
+            ):
+                self.go_to(ball_x_position, ball_y_position, threshold)
+                # Kick the ball if the robot stopped moving
+                if not self.state:
+                    self.state = "Kicking"
+                    self.play_kick_ball()
+
+    def determine_striker_action(
+        self, threshold=0.2, alignment_threshold=0.8, offset=0.35
+    ):
+        """
+        Determines the striker's behavior based on position relative to the ball and goal.
+
+        Args:
+            threshold (float): Distance considered "close enough" to engage with the ball.
+            alignment_threshold (float): Threshold for dot product to check alignment.
+            offset (float): Distance to stay behind the ball when realigning.
+
+        The striker will:
+        - Move directly to the ball if far away.
+        - Kick if aligned and behind the ball.
+        - Reposition if in front of the ball.
+        - Otherwise, move behind the ball to align for a better shot.
+        """
+        # Player with role Striker should head towards the ball if it is far away
+        if self.distance_to_ball() > threshold * 3:
+            self.go_to(self.ball_position[0], self.ball_position[1])
+            return
+
+        # Find the direction from the ball to the goal and the ball to the robot
+        target_goal = GOALIE_X_POSITION if self.team_number == 1 else -GOALIE_X_POSITION
+        x_position, y_position, _ = self.get_position()
+        ball_to_goal_direction = self.normalize_vector(
+            [target_goal - self.ball_position[0], -self.ball_position[1]]
+        )
+        ball_to_robot_direction = self.normalize_vector(
+            [x_position - self.ball_position[0], y_position - self.ball_position[1]]
+        )
+        dot_product = (
+            ball_to_goal_direction[0] * ball_to_robot_direction[0]
+            + ball_to_goal_direction[1] * ball_to_robot_direction[1]
+        )
+
+        # If the dot product is close to -1 then it means the robot is behind the ball and reasonably aligned
+        if dot_product < -alignment_threshold:
+            self.go_to(self.ball_position[0], self.ball_position[1])
+            # Kick the ball if the robot stopped moving
+            if not self.state:
+                self.state = "Kicking"
+                self.play_kick_ball()
+        elif dot_product > alignment_threshold:
+            # If the dot product is close to 1 then it means the robot is in front of the ball and must reposition
+            point_one, point_two = self.get_rotated_points(
+                ball_to_goal_direction, self.ball_position, 120
+            )
+            dist_one = self.get_distance(point_one, [x_position, y_position])
+            dist_two = self.get_distance(point_two, [x_position, y_position])
+            best_target = point_one if dist_one < dist_two else point_two
+            self.go_to(best_target[0], best_target[1])
+        else:
+            # The robot is not along the target direction so it should move to a position behind the ball
+            x_target = self.ball_position[0] - ball_to_goal_direction[0] * offset
+            y_target = self.ball_position[1] - ball_to_goal_direction[1] * offset
+            self.go_to(x_target, y_target)
+
+    def determine_midfielder_action(self):
+        """
+        Determines the midfielder's behavior based on team composition and ball position.
+
+        The midfielder will:
+        - Skip action if team role assignments are inconsistent.
+        - Dynamically position itself to support the striker based on field sections.
+        - Choose the optimal y-offset relative to the ball (±MIDFIELDER_DISTANCE) to spread the field.
+        """
+        sections = {"negative": -MIDFIELDER_DISTANCE, "positive": MIDFIELDER_DISTANCE}
+        striker_count = 0
+        midfielder_position = None
+        # Extract the position of the striker and the other midfielder in the team
+        for player_id in self.my_team:
+            player_role = self.player_states[player_id][0]
+            position = self.player_states[player_id][2]
+            if player_role == "Striker":
+                striker_count += 1
+            elif player_role == "Midfielder":
+                midfielder_position = position
+        # Changes in the roles might have delay which can cause inconsistency so actions should be skipped until states are consistent
+        if striker_count != 1:
+            print(striker_count)
+            return
+
+        x_position, y_position, _ = self.get_position()
+        ball_x_position, ball_y_position, _ = self.ball_position
+        # Section allocation depends on both midfielders when there's 4 players on each team
+        if len(self.my_team) == 4:
+            for offset in sections.values():
+                target_y_position = ball_y_position + offset
+                robot_distance = self.get_distance(
+                    [ball_x_position, target_y_position], [x_position, y_position]
+                )
+                midfielder_distance = self.get_distance(
+                    [ball_x_position, target_y_position], midfielder_position
+                )
+                if robot_distance < midfielder_distance:
+                    self.go_to(ball_x_position, target_y_position)
+        else:
+            # With only one midfielder, the player should only consider the closet support position
+            offset = min(
+                sections.items(),
+                key=lambda item: abs(y_position - (ball_y_position + item[1])),
+            )[1]
+            self.go_to(ball_x_position, ball_y_position + offset)
+
+    # ───────────────────────────────────────
+    # 🚶 Robot Motion Control
+    # ───────────────────────────────────────
+
+    def has_fallen(self, force_threshold=5):
+        """
+        Determines whether the robot has fallen using foot pressure sensor values.
+
+        Args:
+            force_threshold (float): Minimum total force (in Newtons) required to consider the robot upright.
+
+        Returns:
+            bool: True if the robot is considered to have fallen, False otherwise.
+        """
+        if not self.is_motion_over() or not self.is_setup_time_over():
+            return False
+
+        fsv = []  # Force sensor values
+        fsv.append(self.fsr[0].getValues())  # Left foot
+        fsv.append(self.fsr[1].getValues())  # Right foot
+
+        # Compute total force on each foot
+        newtonsLeft = sum(
+            [
+                fsv[0][2] / 3.4 + 1.5 * fsv[0][0] + 1.15 * fsv[0][1],  # Left Front Left
+                fsv[0][2] / 3.4
+                + 1.5 * fsv[0][0]
+                - 1.15 * fsv[0][1],  # Left Front Right
+                fsv[0][2] / 3.4 - 1.5 * fsv[0][0] - 1.15 * fsv[0][1],  # Left Rear Right
+                fsv[0][2] / 3.4 - 1.5 * fsv[0][0] + 1.15 * fsv[0][1],  # Left Rear Left
+            ]
+        )
+
+        newtonsRight = sum(
+            [
+                fsv[1][2] / 3.4
+                + 1.5 * fsv[1][0]
+                + 1.15 * fsv[1][1],  # Right Front Left
+                fsv[1][2] / 3.4
+                + 1.5 * fsv[1][0]
+                - 1.15 * fsv[1][1],  # Right Front Right
+                fsv[1][2] / 3.4
+                - 1.5 * fsv[1][0]
+                - 1.15 * fsv[1][1],  # Right Rear Right
+                fsv[1][2] / 3.4 - 1.5 * fsv[1][0] + 1.15 * fsv[1][1],  # Right Rear Left
+            ]
+        )
+
+        total_force = newtonsLeft + newtonsRight
+        if total_force < force_threshold:
+            print(f"⚠️ Robot has fallen! Total force: {total_force:.2f}N")
+            return True
+        return False
+
+    def start_turn(self, direction):
+        """
+        Initiates a turning action toward a specified direction.
+
+        Args:
+            direction (list[float]): Normalized direction vector to turn toward.
+        """
+        self.target_rotation = direction
+        self.state = "Turning"
+
+    def set_target_position(self, x_position, y_position):
+        """
+        Sets the robot's target (x, y) position for navigation or movement logic.
+
+        Args:
+            x_position (float): Target x-coordinate.
+            y_position (float): Target y-coordinate.
+        """
+        self.target_position = [float(x_position), float(y_position)]
+
+    def stop_turn_and_start_moving(self):
+        """
+        Stops the robot's current turning motion and transitions to the 'Moving' state.
+        """
+        self.stop_motion()
+        self.state = "Moving"
+
+    def go_to(self, x_position, y_position, threshold=0.15):
+        """
+        Directs the robot to move toward a specified (x, y) target position.
+
+        Args:
+            x_position (float): Target x-coordinate on the field.
+            y_position (float): Target y-coordinate on the field.
+            threshold (float): Distance within which the robot is considered to have arrived.
+        """
+        self.set_target_position(x_position, y_position)
+        position = self.get_position()
+        # If the robot reached the target position then stop moving
+        distance = self.get_distance(position, self.target_position)
+        if distance < threshold:
+            self.state = None
+            return
+
+        # Turn before moving
+        x_current, y_current = position[0], position[1]
+        direction = self.normalize_vector(
+            [x_position - x_current, y_position - y_current]
+        )
+        if self.turn_to_direction(direction):
+            self.start_turn(direction)
+        else:
+            self.state = "Moving"
+
+    def move_to_position(self, target_position, threshold=0.15):
+        """
+        Moves the robot toward a specified target position.
+
+        Args:
+            target_position (list[float]): The (x, y) coordinates to move toward.
+            threshold (float): Distance within which the robot is considered to have arrived.
+
+        Returns:
+            bool: True if the target was reached, False otherwise.
+        """
+        x_position, y_position, _ = self.get_position()
+        # If the robot reached the target position then stop moving
+        distance = self.get_distance([x_position, y_position], target_position)
+        if distance < threshold:
+            self.state = None
+            return True
+
+        # Before moving again, ensure robot direction is correct
+        direction = self.normalize_vector(
+            [target_position[0] - x_position, target_position[1] - y_position]
+        )
+        if self.turn_to_direction(direction, moveAfterTurn=True):
+            self.start_turn(direction)
+            return False
+        # Take small steps when it is close else large steps
+        if distance < threshold * 3:
+            self.start_motion(self.smallForwards)
+        else:
+            self.start_motion(self.largeForwards)
+        return False
+
+    def turn_to_direction(self, direction, threshold=35, moveAfterTurn=False):
+        """
+        Rotates the robot to face a given direction vector.
+
+        Args:
+            direction (list[float]): Normalized 2D vector indicating the desired direction.
+            threshold (float): Angle in degrees below which turning is considered complete.
+            moveAfterTurn (bool): If True, initiates movement immediately after turning.
+
+        Returns:
+            bool: True if turning was initiated, False if already aligned.
+        """
+        angle_difference = self.get_turn_angle(direction)
+        # Positive angle indicates a left turn and negative angle indicates a right turn
+        if abs(angle_difference) < math.radians(threshold):
+            if moveAfterTurn:
+                self.stop_turn_and_start_moving()
+            else:
+                self.state = None
+            return False  # Return false for no turning needed
+
+        self.start_motion(self.turnLeft40 if angle_difference > 0 else self.turnRight40)
+        return True
+
+    def slide_to_y_position(
+        self, y_position, lower_y_threshold=-math.inf, upper_y_threshold=math.inf
+    ):
+        """
+        Sets the robot's target y-position using a sliding action.
+
+        Args:
+            y_position (float): Desired y-coordinate to slide to.
+            lower_y_threshold (float): Minimum allowed y-position.
+            upper_y_threshold (float): Maximum allowed y-position.
+        """
+        clamped_pos = max(lower_y_threshold, min(upper_y_threshold, y_position))
+        self.target_position[1] = clamped_pos
+        self.state = "Sliding"
+
+    def side_step_to_position(self, y_position, threshold=0.1):
+        """
+        Moves the robot sideways (left/right) to reach a target y-position using side-step motions.
+
+        Args:
+            y_position (float): Target y-coordinate to move toward.
+            threshold (float): Acceptable distance to consider the robot has arrived.
+        """
+        y_current = self.get_position()[1]
+        difference = y_position - y_current
+        # If the robot reached the target position then stop moving
+        if abs(difference) < threshold:
+            self.state = None
+            return
+
+        # Move the robot
+        if self.team_number == 1:
+            motion = self.sideStepLeft if difference > 0 else self.sideStepRight
+        else:
+            motion = self.sideStepRight if difference > 0 else self.sideStepLeft
+        self.start_motion(motion)
+
+    def back_up(self, target, threshold=0.1):
+        """
+        Makes the robot move backward along the x-axis toward a target position.
+
+        Args:
+            target (float): Target x-coordinate to back up to.
+            threshold (float): Acceptable distance to consider the robot has arrived.
+        """
+        x_position = self.get_position()[0]
+        if abs(target - x_position) < threshold:
+            self.state = None
+            return
+        self.start_motion(self.backwards)
+
+    # ───────────────────────────────────────
+    # 🛰️ Game State Synchronization
+    # ───────────────────────────────────────
+
     def handle_message(self, message):
-        """Handles messages from the server"""
+        """
+        Handles incoming messages from the server and updates robot state accordingly.
+
+        Args:
+            message (str): A message string from the server, delimited by '|'.
+        """
         message_parts = message.split("|")
         message_type = message_parts[0]
 
@@ -131,212 +589,13 @@ class SoccerRobot(Nao):
             case _:
                 print(f"❓ Unknown message type: {message}")
 
-    def determine_action(self):
-        """Determine what to do based on role and current game state"""
-        if not self.is_motion_over():
-            return
-        # If the robot has fallen then ensure it is getting up first
-        if self.has_fallen():
-            self.play_standup_motion()
-            self.state = "Recovering"
-            return
-        if self.state == "Recovering" or self.state == "Kicking":
-            self.state = None
-        if self.recovery_mode:
-            # Once in recovery mode and stable, send acknowledge to server
-            self.setup_time = math.inf
-            message = f"ACK|{self.player_id}"
-            self.send_message(message)
-            self.recovery_mode = False
-            return
-        match self.role:
-            case "Goalie":
-                self.determine_goalie_action()
-            case "Striker":
-                self.determine_striker_action()
-            case "Midfielder":
-                self.determine_midfielder_action()
-            case _:
-                print(f"⚠️ Role not recognized: {self.role}")
-        if self.state == "Moving":
-            self.move_to_position(self.target_position)
-        elif self.state == "Turning":
-            self.turn_to_direction(self.target_rotation, moveAfterTurn=True)
-        elif self.state == "Sliding":
-            self.side_step_to_position(self.target_position[1])
-        elif self.state == "Backing":
-            self.back_up(self.target_position[0])
-
-    def determine_goalie_action(self, threshold=0.1):
-        """Determine what to do as the goalie"""
-        # If the ball is far from goal the goalie should just stay along the x axis of the goal
-        position = self.get_position()
-        ball_x_position, ball_y_position, _ = self.ball_position
-        if abs(ball_x_position - position[0]) < 4:
-            # Goalie should be facing towards the other team goal
-            target_direction = [1, 0] if self.team_number == 1 else [-1, 0]
-            if self.turn_to_direction(target_direction, 20):
-                return
-
-            # If the robot is in front of the ball, the robot should move back
-            goalie_x_axis = (
-                -GOALIE_X_POSITION if self.team_number == 1 else GOALIE_X_POSITION
-            )
-            if not self.is_ball_ahead(ball_x_position, position[0], 0.1):
-                self.target_position[0] = goalie_x_axis
-                self.state = "Backing"
-            # Move the robot in front of the ball
-            elif abs(ball_y_position - position[1]) > threshold:
-                self.slide_to_y_position(ball_y_position, -1, 1)
-            # Move the robot towards the ball
-            elif (
-                self.get_distance(
-                    [ball_x_position, ball_y_position], [goalie_x_axis, position[1]]
-                )
-                < 1
-            ):
-                self.go_to(ball_x_position, ball_y_position, threshold)
-                # Kick the ball if the robot stopped moving
-                if not self.state:
-                    self.state = "Kicking"
-                    self.play_kick_ball()
-
-    def determine_striker_action(
-        self, threshold=0.2, alignment_threshold=0.8, offset=0.35
-    ):
-        """Determine what to do as the striker"""
-        # Player with role Striker should head towards the ball if it is far away
-        if self.distance_to_ball() > threshold * 3:
-            self.go_to(self.ball_position[0], self.ball_position[1])
-            return
-
-        # Find the direction from the ball to the goal and the ball to the robot
-        target_goal = GOALIE_X_POSITION if self.team_number == 1 else -GOALIE_X_POSITION
-        x_position, y_position, _ = self.get_position()
-        ball_to_goal_direction = self.normalize_vector(
-            [target_goal - self.ball_position[0], -self.ball_position[1]]
-        )
-        ball_to_robot_direction = self.normalize_vector(
-            [x_position - self.ball_position[0], y_position - self.ball_position[1]]
-        )
-        dot_product = (
-            ball_to_goal_direction[0] * ball_to_robot_direction[0]
-            + ball_to_goal_direction[1] * ball_to_robot_direction[1]
-        )
-
-        # If the dot product is close to -1 then it means the robot is behind the ball and reasonably aligned
-        if dot_product < -alignment_threshold:
-            self.go_to(self.ball_position[0], self.ball_position[1])
-            # Kick the ball if the robot stopped moving
-            if not self.state:
-                self.state = "Kicking"
-                self.play_kick_ball()
-        elif dot_product > alignment_threshold:
-            # If the dot product is close to 1 then it means the robot is in front of the ball and must reposition
-            point_one, point_two = self.get_rotated_points(
-                ball_to_goal_direction, self.ball_position, 120
-            )
-            dist_one = self.get_distance(point_one, [x_position, y_position])
-            dist_two = self.get_distance(point_two, [x_position, y_position])
-            best_target = point_one if dist_one < dist_two else point_two
-            self.go_to(best_target[0], best_target[1])
-        else:
-            # The robot is not along the target direction so it should move to a position behind the ball
-            x_target = self.ball_position[0] - ball_to_goal_direction[0] * offset
-            y_target = self.ball_position[1] - ball_to_goal_direction[1] * offset
-            self.go_to(x_target, y_target)
-
-    def determine_midfielder_action(self):
-        """Determine what to do as midfielder"""
-        sections = {"negative": -MIDFIELDER_DISTANCE, "positive": MIDFIELDER_DISTANCE}
-        striker_count = 0
-        midfielder_position = None
-        # Extract the position of the striker and the other midfielder in the team
-        for player_id in self.my_team:
-            player_role = self.player_states[player_id][0]
-            position = self.player_states[player_id][2]
-            if player_role == "Striker":
-                striker_count += 1
-            elif player_role == "Midfielder":
-                midfielder_position = position
-        # Changes in the roles might have delay which can cause inconsistency so actions should be skipped until states are consistent
-        if striker_count != 1:
-            print(striker_count)
-            return
-
-        x_position, y_position, _ = self.get_position()
-        ball_x_position, ball_y_position, _ = self.ball_position
-        # Section allocation depends on both midfielders when there's 4 players on each team
-        if len(self.my_team) == 4:
-            for offset in sections.values():
-                target_y_position = ball_y_position + offset
-                robot_distance = self.get_distance(
-                    [ball_x_position, target_y_position], [x_position, y_position]
-                )
-                midfielder_distance = self.get_distance(
-                    [ball_x_position, target_y_position], midfielder_position
-                )
-                if robot_distance < midfielder_distance:
-                    self.go_to(ball_x_position, target_y_position)
-        else:
-            # With only one midfielder, the player should only consider the closet support position
-            offset = min(
-                sections.items(),
-                key=lambda item: abs(y_position - (ball_y_position + item[1])),
-            )[1]
-            self.go_to(ball_x_position, ball_y_position + offset)
-
-    def has_fallen(self, force_threshold=5):
-        """Determines if the robot has fallen using foot pressure sensors"""
-        """
-        Skips fall detection until the setup time has passed and the current motion is complete.
-        When robots are repositioned using the Supervisor, their foot sensors may temporarily 
-        report low values due to incomplete contact with the ground. This delay allows the 
-        physics engine to settle the robot and ensures foot sensors register proper ground contact.
-        """
-        if not self.is_motion_over() or not self.is_setup_time_over():
-            return False
-
-        fsv = []  # Force sensor values
-        fsv.append(self.fsr[0].getValues())  # Left foot
-        fsv.append(self.fsr[1].getValues())  # Right foot
-
-        # Compute total force on each foot
-        newtonsLeft = sum(
-            [
-                fsv[0][2] / 3.4 + 1.5 * fsv[0][0] + 1.15 * fsv[0][1],  # Left Front Left
-                fsv[0][2] / 3.4
-                + 1.5 * fsv[0][0]
-                - 1.15 * fsv[0][1],  # Left Front Right
-                fsv[0][2] / 3.4 - 1.5 * fsv[0][0] - 1.15 * fsv[0][1],  # Left Rear Right
-                fsv[0][2] / 3.4 - 1.5 * fsv[0][0] + 1.15 * fsv[0][1],  # Left Rear Left
-            ]
-        )
-
-        newtonsRight = sum(
-            [
-                fsv[1][2] / 3.4
-                + 1.5 * fsv[1][0]
-                + 1.15 * fsv[1][1],  # Right Front Left
-                fsv[1][2] / 3.4
-                + 1.5 * fsv[1][0]
-                - 1.15 * fsv[1][1],  # Right Front Right
-                fsv[1][2] / 3.4
-                - 1.5 * fsv[1][0]
-                - 1.15 * fsv[1][1],  # Right Rear Right
-                fsv[1][2] / 3.4 - 1.5 * fsv[1][0] + 1.15 * fsv[1][1],  # Right Rear Left
-            ]
-        )
-
-        total_force = newtonsLeft + newtonsRight
-        if total_force < force_threshold:
-            print(f"⚠️ Robot has fallen! Total force: {total_force:.2f}N")
-            return True
-        # print(f"Robot is standing. Total force: {total_force:.2f}N")
-        return False
-
     def send_player_state(self, force=False):
-        """Sends position, rotation, and state to the server"""
+        """
+        Sends the robot's current position, rotation, and action state to the game server.
+
+        Args:
+            force (bool): If True, forces a state update regardless of movement or rotation changes.
+        """
         position, angle = self.get_position(), self.get_rotation()[2]
         if (
             force
@@ -352,191 +611,49 @@ class SoccerRobot(Nao):
             self.last_rotation = angle
             self.last_state = self.state
 
-    def go_to(self, x_position, y_position, threshold=0.15):
-        """Function to tell the robot to go a certain position"""
-        self.set_target_position(x_position, y_position)
-        position = self.get_position()
-        # If the robot reached the target position then stop moving
-        distance = self.get_distance(position, self.target_position)
-        if distance < threshold:
-            self.state = None
-            return
-
-        # Turn before moving
-        x_current, y_current = position[0], position[1]
-        direction = self.normalize_vector(
-            [x_position - x_current, y_position - y_current]
-        )
-        if self.turn_to_direction(direction):
-            self.start_turn(direction)
-        else:
-            self.state = "Moving"
-
-    def move_to_position(self, target_position, threshold=0.15):
-        """Move the robot to the target position"""
-        x_position, y_position, _ = self.get_position()
-        # If the robot reached the target position then stop moving
-        distance = self.get_distance([x_position, y_position], target_position)
-        if distance < threshold:
-            self.state = None
-            return True
-
-        # Before moving again, ensure robot direction is correct
-        direction = self.normalize_vector(
-            [target_position[0] - x_position, target_position[1] - y_position]
-        )
-        if self.turn_to_direction(direction, moveAfterTurn=True):
-            self.start_turn(direction)
-            return False
-        # Take small steps when it is close else large steps
-        if distance < threshold * 3:
-            self.start_motion(self.smallForwards)
-        else:
-            self.start_motion(self.largeForwards)
-        return False
-
-    def turn_to_direction(self, direction, threshold=35, moveAfterTurn=False):
-        """Turn the robot towards the target direction"""
-        angle_difference = self.get_turn_angle(direction)
-        # Positive angle indicates a left turn and negative angle indicates a right turn
-        if abs(angle_difference) < math.radians(threshold):
-            if moveAfterTurn:
-                self.stop_turn_and_start_moving()
-            else:
-                self.state = None
-            return False  # Return false for no turning needed
-
-        self.start_motion(self.turnLeft40 if angle_difference > 0 else self.turnRight40)
-        return True
-
-    def slide_to_y_position(
-        self, y_position, lower_y_threshold=-math.inf, upper_y_threshold=math.inf
-    ):
-        """Slide the robot to a certain y position"""
-        clamped_pos = max(lower_y_threshold, min(upper_y_threshold, y_position))
-        self.target_position[1] = clamped_pos
-        self.state = "Sliding"
-
-    def side_step_to_position(self, y_position, threshold=0.1):
-        """Move the robot using side step motions"""
-        y_current = self.get_position()[1]
-        difference = y_position - y_current
-        # If the robot reached the target position then stop moving
-        if abs(difference) < threshold:
-            self.state = None
-            return
-
-        # Move the robot
-        if self.team_number == 1:
-            motion = self.sideStepLeft if difference > 0 else self.sideStepRight
-        else:
-            motion = self.sideStepRight if difference > 0 else self.sideStepLeft
-        self.start_motion(motion)
-
-    def back_up(self, target, threshold=0.1):
-        """Makes the robot back up"""
-        x_position = self.get_position()[0]
-        if abs(target - x_position) < threshold:
-            self.state = None
-            return
-        self.start_motion(self.backwards)
-
-    def is_ball_ahead(self, ball_x, robot_x, min_distance=0.15):
-        """Determine whether the ball is in front of behind the player using the x coordinate value"""
-        return (
-            ball_x - robot_x > min_distance
-            if self.team_number == 1
-            else robot_x - ball_x > min_distance
-        )
-
-    def normalize_vector(self, vector):
-        """Normalizes a vector"""
-        norm = math.sqrt(sum(val**2 for val in vector))
-        return [v / norm for v in vector] if norm != 0 else vector
-
-    def get_distance(self, point_one, point_two):
-        """Returns the Euclidean distance between two points in xy-plane"""
-        return math.sqrt(
-            (point_two[0] - point_one[0]) ** 2 + (point_two[1] - point_one[1]) ** 2
-        )
-
-    def get_turn_angle(self, direction):
-        """Find the angle to turn to within [-pi, pi]"""
-        current_angle = self.get_rotation()[2]
-        target_angle = math.atan2(direction[1], direction[0])
-        return self.calculate_angle_difference(current_angle, target_angle)
-
-    def calculate_angle_difference(self, angle1, angle2):
-        """Returns the angular difference in radians between two angles"""
-        return (angle2 - angle1 + math.pi) % (2 * math.pi) - math.pi
-
-    def find_rotated_vector(self, vector, angle):
-        """Find the rotated vector after applying a rotation"""
-        cos_a = math.cos(angle)
-        sin_a = math.sin(angle)
-        x, y = vector
-        return [x * cos_a - y * sin_a, x * sin_a + y * cos_a]
-
-    def get_rotated_points(self, direction, origin_point, angle_degree, distance=0.5):
-        """Returns two points rotated from the given direction vector by angle_deg offset from the origin_point by the specified distance"""
-        # Rotate direction vector by ±angle
-        radians = math.radians(angle_degree)
-        rotated_left = self.find_rotated_vector(direction, radians)
-        rotated_right = self.find_rotated_vector(direction, -radians)
-
-        # Scale by distance and offset from origin
-        left_point = [
-            origin_point[0] + rotated_left[0] * distance,
-            origin_point[1] + rotated_left[1] * distance,
-        ]
-        right_point = [
-            origin_point[0] + rotated_right[0] * distance,
-            origin_point[1] + rotated_right[1] * distance,
-        ]
-        return [left_point, right_point]
-
-    def stop_turn_and_start_moving(self):
-        """Stops the current turning motion and transitions the robot to the moving state"""
-        self.stop_motion()
-        self.state = "Moving"
-
-    def start_turn(self, direction):
-        """Starts and set up the turning"""
-        self.target_rotation = direction
-        self.state = "Turning"
-
-    def set_target_position(self, x_position, y_position):
-        """Set a target position"""
-        self.target_position = [float(x_position), float(y_position)]
-
-    def distance_to_ball(self):
-        """Calculates the Euclidean distance from the player to the ball"""
-        position = self.get_position()
-        return self.get_distance(position, self.ball_position)
-
     def update_state(self, player_id, state):
-        """Updates the state of the player"""
+        """
+        Updates the current action/state of the specified player.
+
+        Args:
+            player_id (str): ID of the player to update.
+            state (str): New state (e.g., "Moving", "Idle", "Kicking").
+        """
         self.player_states[player_id][1] = state
 
     def update_position(self, player, x, y):
-        """Update the position of the player"""
+        """
+        Updates the (x, y) position of a player.
+
+        Args:
+            player (str): ID of the player.
+            x (float): New x-coordinate.
+            y (float): New y-coordinate.
+        """
         self.player_states[player][2] = [x, y]
 
     def update_rotation(self, player, angle):
-        """Update the rotation of the player"""
+        """
+        Updates the rotation angle of a player.
+
+        Args:
+            player (str): ID of the player.
+            angle (float): New rotation angle in radians.
+        """
         self.player_states[player][3] = angle
 
     def update_ball_position(self, x, y, z):
-        """Update the position of the ball"""
+        """
+        Updates the (x, y, z) position of the ball.
+
+        Args:
+            x (float): New x-coordinate of the ball.
+            y (float): New y-coordinate of the ball.
+            z (float): New z-coordinate of the ball.
+        """
         self.ball_position[0] = x
         self.ball_position[1] = y
         self.ball_position[2] = z
-
-    def send_message(self, message, delay_tolerance=0.5):
-        """Send messages with the time and delay allowed"""
-        self.sock.sendall(
-            f"{message}|{self.getTime()}|{delay_tolerance}\n".encode("utf-8")
-        )
 
     def create_delay(self, duration):
         """
@@ -555,6 +672,142 @@ class SoccerRobot(Nao):
         else:
             # Stack the new delay onto the current remaining time
             self.setup_time += duration
+
+    # ───────────────────────────────────────
+    # 🧮 Math & Geometry Utilities
+    # ───────────────────────────────────────
+
+    def get_distance(self, point_one, point_two):
+        """
+        Calculates Euclidean distance between two points in the xy-plane.
+
+        Args:
+            point_one (list[float]): Coordinates of the first point [x1, y1].
+            point_two (list[float]): Coordinates of the second point [x2, y2].
+
+        Returns:
+            float: The distance between the two points.
+        """
+        return math.sqrt(
+            (point_two[0] - point_one[0]) ** 2 + (point_two[1] - point_one[1]) ** 2
+        )
+
+    def normalize_vector(self, vector):
+        """
+        Returns the normalized version of a 2D or 3D vector.
+
+        Args:
+            vector (list[float]): A list of vector components.
+
+        Returns:
+            list[float]: A unit vector in the same direction, or the original if norm is 0.
+        """
+        norm = math.sqrt(sum(val**2 for val in vector))
+        return [v / norm for v in vector] if norm != 0 else vector
+
+    def get_turn_angle(self, direction):
+        """
+        Calculates the angle the robot needs to turn to face the given direction.
+
+        Args:
+            direction (list[float]): Normalized direction vector.
+
+        Returns:
+            float: Angular difference (in radians) between current orientation and target.
+        """
+        current_angle = self.get_rotation()[2]
+        target_angle = math.atan2(direction[1], direction[0])
+        return self.calculate_angle_difference(current_angle, target_angle)
+
+    def calculate_angle_difference(self, angle1, angle2):
+        """
+        Returns the smallest signed difference between two angles in the range [-π, π].
+
+        Args:
+            angle1 (float): Current angle.
+            angle2 (float): Target angle.
+
+        Returns:
+            float: The angular difference angle2 - angle1.
+        """
+        return (angle2 - angle1 + math.pi) % (2 * math.pi) - math.pi
+
+    def find_rotated_vector(self, vector, angle):
+        """
+        Rotates a 2D vector by a given angle.
+
+        Args:
+            vector (list[float]): A 2D vector [x, y].
+            angle (float): Rotation angle in radians.
+
+        Returns:
+            list[float]: The rotated vector.
+        """
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        x, y = vector
+        return [x * cos_a - y * sin_a, x * sin_a + y * cos_a]
+
+    def get_rotated_points(self, direction, origin_point, angle_degree, distance=0.5):
+        """
+        Returns two points rotated left and right from a direction vector, originating from a base point.
+
+        Args:
+            direction (list[float]): Unit direction vector to rotate from.
+            origin_point (list[float]): [x, y] origin of the rotation.
+            angle_degree (float): Angle in degrees to rotate left and right.
+            distance (float): Distance from the origin to the rotated point.
+
+        Returns:
+            list[list[float]]: Two 2D points [left_point, right_point] at the specified angle and distance.
+        """
+        # Rotate direction vector by ±angle
+        radians = math.radians(angle_degree)
+        rotated_left = self.find_rotated_vector(direction, radians)
+        rotated_right = self.find_rotated_vector(direction, -radians)
+
+        # Scale by distance and offset from origin
+        left_point = [
+            origin_point[0] + rotated_left[0] * distance,
+            origin_point[1] + rotated_left[1] * distance,
+        ]
+        right_point = [
+            origin_point[0] + rotated_right[0] * distance,
+            origin_point[1] + rotated_right[1] * distance,
+        ]
+        return [left_point, right_point]
+
+    def distance_to_ball(self):
+        """
+        Calculates the Euclidean distance from the robot to the ball.
+
+        Returns:
+            float: Distance between the robot's position and the ball's position.
+        """
+        position = self.get_position()
+        return self.get_distance(position, self.ball_position)
+
+    # ───────────────────────────────────────
+    # 🧰 Helper Functions
+    # ───────────────────────────────────────
+
+    def is_ball_ahead(self, ball_x, robot_x, min_distance=0.15):
+        """
+        Determines whether the ball is ahead of the robot on the field.
+
+        Args:
+            ball_x (float): x-position of the ball.
+            robot_x (float): x-position of the robot.
+            min_distance (float): Minimum distance ahead to count as "ahead".
+
+        Returns:
+            bool: True if the ball is ahead of the robot, False otherwise.
+        """
+        return (
+            ball_x - robot_x > min_distance
+            if self.team_number == 1
+            else robot_x - ball_x > min_distance
+        )
 
     def is_setup_time_over(self):
         """

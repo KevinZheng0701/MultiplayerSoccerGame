@@ -136,7 +136,7 @@ class ArtificialFaultInjector:
                 zone["x_min"] <= x_position <= zone["x_max"]
                 and zone["y_min"] <= y_position <= zone["y_max"]
                 and curr_time - last_time >= TERRIAN_COOLDOWN  # Cooldown check
-                and random.random() > self.fault_chance  # Chance-based trigger
+                and random.random() < self.fault_chance  # Chance-based trigger
             ):
                 # Generate random 3D force vector to simulate disturbance
                 force = [
