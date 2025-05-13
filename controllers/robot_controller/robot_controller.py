@@ -26,6 +26,7 @@ class SoccerRobot(Nao):
         self.player_states = {}  # Store player positions and role status
 
         # Identity and communication
+        self.lock = threading.Lock()
         self.sock = None
         self.team_number = None
         self.player_id = None
@@ -551,10 +552,12 @@ class SoccerRobot(Nao):
                 player_id = message_parts[1]
                 role = message_parts[2]
                 if player_id == self.player_id:
-                    self.role = role
+                    with self.lock:
+                        self.role = role
                     print(f"📢 Assigned Role: {self.role}")
                 else:
-                    self.player_states[player_id][0] = role
+                    with self.lock:
+                        self.player_states[player_id][0] = role
             case "REVERT":
                 self.create_delay(
                     float(message_parts[1])
@@ -577,13 +580,14 @@ class SoccerRobot(Nao):
                 else:
                     # Set up player default state
                     team_number = int(message_parts[2])
-                    self.player_states[player_id] = [None, "None", [0, 0], 0]
-                    if team_number == self.team_number:
-                        self.my_team.add(player_id)
-                        print(f"📢 New teammate: {player_id}")
-                    else:
-                        self.opponent_team.add(player_id)
-                        print(f"📢 New opponent: {player_id}")
+                    with self.lock:
+                        self.player_states[player_id] = [None, "None", [0, 0], 0]
+                        if team_number == self.team_number:
+                            self.my_team.add(player_id)
+                            print(f"📢 New teammate: {player_id}")
+                        else:
+                            self.opponent_team.add(player_id)
+                            print(f"📢 New opponent: {player_id}")
             case "START":
                 self.create_delay(float(message_parts[1]))
             case _:
@@ -619,7 +623,8 @@ class SoccerRobot(Nao):
             player_id (str): ID of the player to update.
             state (str): New state (e.g., "Moving", "Idle", "Kicking").
         """
-        self.player_states[player_id][1] = state
+        with self.lock:
+            self.player_states[player_id][1] = state
 
     def update_position(self, player, x, y):
         """
@@ -630,7 +635,8 @@ class SoccerRobot(Nao):
             x (float): New x-coordinate.
             y (float): New y-coordinate.
         """
-        self.player_states[player][2] = [x, y]
+        with self.lock:
+            self.player_states[player][2] = [x, y]
 
     def update_rotation(self, player, angle):
         """
@@ -640,7 +646,8 @@ class SoccerRobot(Nao):
             player (str): ID of the player.
             angle (float): New rotation angle in radians.
         """
-        self.player_states[player][3] = angle
+        with self.lock:
+            self.player_states[player][3] = angle
 
     def update_ball_position(self, x, y, z):
         """
@@ -651,9 +658,10 @@ class SoccerRobot(Nao):
             y (float): New y-coordinate of the ball.
             z (float): New z-coordinate of the ball.
         """
-        self.ball_position[0] = x
-        self.ball_position[1] = y
-        self.ball_position[2] = z
+        with self.lock:
+            self.ball_position[0] = x
+            self.ball_position[1] = y
+            self.ball_position[2] = z
 
     def create_delay(self, duration):
         """
@@ -665,13 +673,14 @@ class SoccerRobot(Nao):
         Args:
             float: Time in seconds to delay.
         """
-        if self.is_setup_time_over() or self.setup_time == math.inf:
-            # No active delay, start a new one
-            self.start_time = self.getTime()
-            self.setup_time = duration
-        else:
-            # Stack the new delay onto the current remaining time
-            self.setup_time += duration
+        with self.lock:
+            if self.is_setup_time_over() or self.setup_time == math.inf:
+                # No active delay, start a new one
+                self.start_time = self.getTime()
+                self.setup_time = duration
+            else:
+                # Stack the new delay onto the current remaining time
+                self.setup_time += duration
 
     # ───────────────────────────────────────
     # 🧮 Math & Geometry Utilities

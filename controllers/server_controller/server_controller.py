@@ -46,7 +46,7 @@ class GameServer(Supervisor):
         self.players_limit = players_limit
 
         # Networking and client management
-        self.client_lock = threading.Lock()
+        self.lock = threading.Lock()
         self.clients = {}
         self.delayed_messages = defaultdict(
             ClientMessageQueue
@@ -118,7 +118,7 @@ class GameServer(Supervisor):
         print(f"🆔 New client connection: {player_id}, {address}.")
 
         # Add player to the clients list
-        with self.client_lock:
+        with self.lock:
             self.clients[player_id] = connection
 
         # Send id to the connected robot
@@ -155,7 +155,7 @@ class GameServer(Supervisor):
         Args:
             connection (socket.socket): The socket connection associated with the disconnected client.
         """
-        with self.client_lock:
+        with self.lock:
             for player_id, conn in self.clients.items():
                 if conn == connection:
                     del self.clients[player_id]
@@ -294,34 +294,40 @@ class GameServer(Supervisor):
         y_position = self.calculate_player_y_position(0)
 
         # In the order of role, current action, xy coordinate, rotation, etc
-        self.player_states[players[0]] = [
-            "Striker",
-            None,
-            [x_position, y_position],
-            angle,
-        ]
+        with self.lock:
+            self.player_states[players[0]] = [
+                "Striker",
+                None,
+                [x_position, y_position],
+                angle,
+            ]
         self.apply_player_state_in_simulation(players[0])
 
         if len(players) >= 2:
             goalie_x_position = (
                 -GOALIE_X_POSITION if team_number == 1 else GOALIE_X_POSITION
             )
-            self.player_states[players[1]] = [
-                "Goalie",
-                None,
-                [goalie_x_position, y_position if team_number == 1 else -y_position],
-                angle,
-            ]
+            with self.lock:
+                self.player_states[players[1]] = [
+                    "Goalie",
+                    None,
+                    [
+                        goalie_x_position,
+                        y_position if team_number == 1 else -y_position,
+                    ],
+                    angle,
+                ]
             self.apply_player_state_in_simulation(players[1])
 
             for i in range(2, len(players)):
                 y_position = self.calculate_player_y_position(i)
-                self.player_states[players[i]] = [
-                    "Midfielder",
-                    None,
-                    [x_position, y_position if team_number == 1 else -y_position],
-                    angle,
-                ]
+                with self.lock:
+                    self.player_states[players[i]] = [
+                        "Midfielder",
+                        None,
+                        [x_position, y_position if team_number == 1 else -y_position],
+                        angle,
+                    ]
                 self.apply_player_state_in_simulation(players[i])
 
     def check_queue_messages(self):
@@ -553,7 +559,7 @@ class GameServer(Supervisor):
             player_id (str): The unique ID of the player.
             state (str): The new state or action.
         """
-        with self.client_lock:
+        with self.lock:
             self.player_states[player_id][1] = state
 
     def update_position(self, player_id, x, y):
@@ -565,7 +571,7 @@ class GameServer(Supervisor):
             x (float): The new x-coordinate.
             y (float): The new y-coordinate.
         """
-        with self.client_lock:
+        with self.lock:
             self.player_states[player_id][2] = [x, y]
 
     def update_rotation(self, player_id, angle):
@@ -576,7 +582,7 @@ class GameServer(Supervisor):
             player_id (str): The unique ID of the player.
             angle (float): The new rotation angle in radians.
         """
-        with self.client_lock:
+        with self.lock:
             self.player_states[player_id][3] = angle
 
     def update_roles_based_on_proximity(self, team):
@@ -611,8 +617,9 @@ class GameServer(Supervisor):
                 new_role = "Midfielder"
                 print(f"📥 {player} is no longer closest and becomes Midfielder.")
             if new_role:
-                self.player_states[player][0] = new_role
-                self.broadcast(f"ROLE|{player}|{new_role}\n")
+                with self.lock:
+                    self.player_states[player][0] = new_role
+                    self.broadcast(f"ROLE|{player}|{new_role}\n")
 
     def check_robot_events(self):
         """
