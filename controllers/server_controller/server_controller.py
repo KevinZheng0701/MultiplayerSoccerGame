@@ -371,7 +371,6 @@ class GameServer(Supervisor):
 
         # Reset ball position
         self.ball.getField("translation").setSFVec3f(INIT_BALL_POS)
-        self.last_ball_position = INIT_BALL_POS
 
         # Reset all player states and inform clients
         self.assign_initial_team_states(self.team1)
