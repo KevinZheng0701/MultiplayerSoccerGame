@@ -6,7 +6,7 @@
 
 Each robot is fully autonomous and uses built-in AI to make real-time decisions based on the game state. A centralized server (the Webots Supervisor) is responsible for maintaining global state consistency, assigning roles, and managing inter-robot communication.
 
-![Game World](worlds//game_world.jpg)
+![Game World](worlds/.game_world.jpg)
 
 ![Description](worlds/gameplay.jpg)
 
