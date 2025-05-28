@@ -12,23 +12,15 @@ Each robot is fully autonomous and uses built-in AI to make real-time decisions 
 
 ## Project Goals
 
-- Role Management & Coordination
-  Dynamically assign and manage robot roles such as Striker, Midfielder, and Goalie, ensuring balanced team behavior and specialization.
+- Role Management & Coordination - Dynamically assign and manage robot roles such as Striker, Midfielder, and Goalie, ensuring balanced team behavior and specialization.
 
-- Autonomous AI & Decision-Making
-  Implement intelligent behavior for each role using finite state machines (FSMs) that respond to real-time game conditions.
+- Autonomous AI & Decision-Making - Implement intelligent behavior for each role using finite state machines (FSMs) that respond to real-time game conditions.
 
-- Real-Time State Synchronization
-  Maintain a synchronized game state across all autonomous robot clients using reliable TCP networking.
+- Real-Time State Synchronization - Maintain a synchronized game state across all autonomous robot clients using reliable TCP networking.
 
-- Networked Simulation Architecture
-  Explore and apply multiplayer networking models and distributed simulation techniques to improve timing accuracy and communication robustness.
+- Artificial Force Injection & Adaptation - Simulate external disturbances such as wind, terrain shifts, or network latency to test the adaptability and resilience of robot behaviors.
 
-- Artificial Force Injection & Adaptation
-  Simulate external disturbances such as wind, terrain shifts, or network latency to test the adaptability and resilience of robot behaviors.
-
-- WYSIWIS Environment Consistency
-  Ensure What You See Is What I See consistency so that all agents operate with a shared and unified view of the game world.
+- WYSIWIS Environment Consistency - Ensure What You See Is What I See consistency so that all agents operate with a shared and unified view of the game world.
 
 ## Technologies Used
 
